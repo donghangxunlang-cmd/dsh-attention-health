@@ -1,0 +1,18 @@
+# 换行符策略：**本项目强制 LF**。
+#
+# 为什么必须钉死：项目的编码不变式是「.md 无 BOM 且 CR=0」「.ps1 带 UTF-8 BOM」，
+# 每轮验收都会逐字节复查。而 Windows 版 git 默认 `core.autocrlf=true`，
+# 会在**检出**时把文本文件转成 CRLF —— 那会直接破坏上面那条不变式。
+#
+# 这里显式声明 LF，并配合 `git config core.autocrlf false`（本地已设）。
+* text=auto eol=lf
+
+# PowerShell 脚本：项目约定是 UTF-8 **with BOM**，换行仍是 LF。
+# （BOM 由 `deploy.ps1` 第 0 步自检守住；git 不管 BOM，只保证不换行转换。）
+*.ps1 text eol=lf
+
+# 二进制文件不做任何行尾转换
+*.png binary
+*.jpg binary
+*.zstd binary
+*.zip binary
