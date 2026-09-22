@@ -12,9 +12,13 @@
 - **线上形态 = 安装产物**：`$DSH_HOME\profiles\web\node_modules\dsh-attention-health`，
   由 `dsh plugin --profile web add -w <tgz>` 装进去，层栈记在 profile 的 `dsh.profile.bundles`。
   ⚠️ **改 `lib/` 不会自动同步到线上** —— 旧形态时"跑一次 deploy 就同步"已经失效。
-- 一条命令完成"打包 + 安装"：`.\install-package.ps1`（tgz 落在
-  `<TOOLS>\DSH\留档\attention-health-pkg\`，**稳定目录**：profile 里记的是这个路径，
-  放进"临时"被清理后再 install 会找不到）。
+- 一条命令完成"打包 + 安装"：`.\install-package.ps1`（tgz 落在 `-PkgDir` →
+  `$env:DSH_ATTENTION_HEALTH_PKG_DIR` → `<DSH_HOME>\attention-health-pkg` 三者中第一个给出的目录；
+  **必须是稳定目录**：profile 里记的是这个路径，放进"临时"被清理后再 install 会找不到）。
+- **工具路径一律走环境变量**（`DSH_NODE_DIR` / `DSH_BIN` / `DSH_ATTENTION_HEALTH_PKG_DIR` /
+  `DSH_NODE_EXE` / `DSH_NPM_CMD`）—— 脚本里**不许写死本机路径**：公开产物会把这类路径
+  脱敏成 `<TOOLS>` 占位符，产物里的脚本当场失效（2026-09-22 实测：产物版 `npm-publish.ps1`
+  报"找不到 npm.cmd"）。本机已设好前三个用户级变量。
 - 改完 host 半 → `.\restart-attention-health.ps1`（重启 + 14 项运行时验证）；
   只改 `client.js` → 刷新页面即可。
 - 自测：`.\test-all.ps1`（**自动指向线上那份标准包**；也可 `-Dir` / `-UiDir` 指到任意一份，
