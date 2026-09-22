@@ -28,6 +28,7 @@ const PUBLISH = [
   'cordis.patch.yml',
   'README.md',
   'LICENSE',
+  'SECURITY.md',
   'AGENTS.md',
   '.gitattributes',
   'handoff.mjs',
