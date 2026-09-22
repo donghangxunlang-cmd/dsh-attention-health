@@ -10,13 +10,21 @@
 #   .\install-package.ps1                     # 打包 + 装进 profiles\web（线上 profile）
 #   .\install-package.ps1 -Profile ah-exp     # 装进别的 profile（实验用）
 #   .\install-package.ps1 -NoInstall          # 只打包，不动任何 profile
+#   .\install-package.ps1 -PkgDir <目录>      # 指定 tgz 落地目录（默认见下）
 #
-# 落地位置：`<TOOLS>\DSH\留档\attention-health-pkg\`（**稳定目录** ——
-# profile 的 package.json 里记的是这个 tgz 的路径，放进"临时"目录被清理后再 install 会找不到）。
+# 落地位置（按优先级）：`-PkgDir` 参数 → `$env:DSH_ATTENTION_HEALTH_PKG_DIR` →
+# `<DSH_HOME>\attention-health-pkg`。⚠️ **必须是稳定目录** —— profile 的 package.json 里
+# 记的是这个 tgz 的路径，放进"临时"目录被清理后再 install 会找不到。
+#
+# 工具定位（**本文件不得写死本机路径**：公开产物会把本机路径脱敏成占位符 → 脚本失效）：
+#   · node：`DSH_NODE_EXE` → `DSH_NODE_DIR\node.exe` → Program Files / LOCALAPPDATA → PATH
+#   · pnpm：`DSH_NODE_DIR` 前置到 PATH 后从 PATH 找（也可全局装 pnpm 11）
+#   · dsh  ：`DSH_BIN`（bin.js 全路径）→ `%APPDATA%\npm\...\dsh\lib\bin.js` → PATH 里的 dsh shim
 
 [CmdletBinding()]
 param(
     [string]$Profile = 'web',
+    [string]$PkgDir,
     [switch]$NoInstall,
     [switch]$SkipPack
 )
@@ -27,24 +35,34 @@ $root    = $PSScriptRoot
 $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
 
 # ── 工具位置（与 deploy.ps1 同一套探测顺序）─────────────────────────────────
-$nodeDir = '<TOOLS>\scripts\nodejs'
+$nodeDir = $env:DSH_NODE_DIR
 function Resolve-NodeExe {
-    foreach ($c in @($env:DSH_NODE_EXE, (Join-Path $nodeDir 'node.exe'), (Join-Path $env:ProgramFiles 'nodejs\node.exe'))) {
+    foreach ($c in @(
+            $env:DSH_NODE_EXE,
+            $(if ($nodeDir) { Join-Path $nodeDir 'node.exe' }),
+            (Join-Path $env:ProgramFiles 'nodejs\node.exe'),
+            (Join-Path $env:LOCALAPPDATA 'Programs\nodejs\node.exe')
+        )) {
         if ($c -and (Test-Path -LiteralPath $c)) { return $c }
     }
     $cmd = Get-Command node -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    throw '找不到 node.exe（可设 $env:DSH_NODE_EXE 指定）'
+    throw '找不到 node.exe（可设 $env:DSH_NODE_EXE 或 $env:DSH_NODE_DIR 指定）'
 }
 function Resolve-DshBin {
     foreach ($c in @(
             $env:DSH_BIN,
-            '<TOOLS>\scripts\dsh-official\node_modules\@deepseek-ai\dsh\lib\bin.js',
             (Join-Path $env:APPDATA 'npm\node_modules\@deepseek-ai\dsh\lib\bin.js')
         )) {
         if ($c -and (Test-Path -LiteralPath $c)) { return $c }
     }
-    throw '找不到 dsh 的 bin.js（可设 $env:DSH_BIN 指定）'
+    # PATH 里的 dsh shim → 推导同级的 bin.js
+    $cmd = Get-Command dsh -ErrorAction SilentlyContinue
+    if ($cmd) {
+        $guess = Join-Path (Split-Path -Parent $cmd.Source) 'node_modules\@deepseek-ai\dsh\lib\bin.js'
+        if (Test-Path -LiteralPath $guess) { return $guess }
+    }
+    throw '找不到 dsh 的 bin.js（可设 $env:DSH_BIN 指定，或把 dsh 加入 PATH）'
 }
 $nodeExe = Resolve-NodeExe
 $dshBin  = Resolve-DshBin
@@ -54,9 +72,11 @@ if (Test-Path -LiteralPath (Join-Path $nodeDir 'pnpm.cmd')) {
     $env:PATH = "$nodeDir;$env:PATH"
 }
 $pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
-if (-not $pnpm) { throw "找不到 pnpm（期望在 $nodeDir\pnpm.cmd）—— 先 npm i -g pnpm@11" }
+if (-not $pnpm) { throw '找不到 pnpm（可设 $env:DSH_NODE_DIR 指向含 pnpm.cmd 的目录，或先 npm i -g pnpm@11）' }
 
-$pkgOut = '<TOOLS>\DSH\留档\attention-health-pkg'
+$pkgOut = if ($PkgDir) { $PkgDir }
+elseif ($env:DSH_ATTENTION_HEALTH_PKG_DIR) { $env:DSH_ATTENTION_HEALTH_PKG_DIR }
+else { Join-Path $dshHome 'attention-health-pkg' }
 New-Item -ItemType Directory -Force -Path $pkgOut | Out-Null
 
 Write-Host ''

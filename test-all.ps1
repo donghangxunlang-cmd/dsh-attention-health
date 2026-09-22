@@ -29,7 +29,7 @@ $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFIL
 function Resolve-NodeExe {
     foreach ($c in @(
             $env:DSH_NODE_EXE,
-            '<TOOLS>\scripts\nodejs\node.exe',
+            $(if ($env:DSH_NODE_DIR) { Join-Path $env:DSH_NODE_DIR 'node.exe' }),
             (Join-Path $env:ProgramFiles 'nodejs\node.exe'),
             (Join-Path $env:LOCALAPPDATA 'Programs\nodejs\node.exe')
         )) {

@@ -14,6 +14,9 @@
 #   .\tools\npm-publish.ps1 -Dir <目录>      # 指定要发布的目录（默认：本脚本所在仓库根）
 #
 # ⚠️ 在开发仓里跑它会**被拦下**（那正是它的作用）；正式发布应在脱敏产物目录里跑。
+# ⚠️ 需要 node 与 npm 能被找到：优先 `DSH_NODE_EXE` / `DSH_NPM_CMD` 环境变量，其次 PATH。
+#    （**不要**在本文件里写死本机工具目录 —— 公开产物会把它脱敏成占位符，脚本当场失效；
+#     2026-09-22 实测踩到：发布产物里的本脚本报"找不到 npm.cmd"。）
 
 [CmdletBinding()]
 param(
@@ -38,12 +41,11 @@ function Resolve-Exe {
     }
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
-    throw "找不到 $Name"
+    throw "找不到 $Name（可设环境变量指定，或把它加入 PATH）"
 }
 
-$nodeDir = '<TOOLS>\scripts\nodejs'
-$node = Resolve-Exe @($env:DSH_NODE_EXE, (Join-Path $nodeDir 'node.exe')) 'node'
-$npm = Resolve-Exe @((Join-Path $nodeDir 'npm.cmd')) 'npm.cmd'
+$node = Resolve-Exe @($env:DSH_NODE_EXE) 'node'
+$npm = Resolve-Exe @($env:DSH_NPM_CMD) 'npm.cmd'
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("ah-npm-gate-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
