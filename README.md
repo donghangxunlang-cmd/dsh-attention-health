@@ -308,8 +308,25 @@ cordis.patch.yml       本包作为 bundle 的挂载行（一行同时装入 hos
 > `dsh.client.platform: web` —— 与生态里同为双面的 `dsh-context` 完全同形，
 > 所以别人可以 `dsh plugin --profile web add dsh-attention-health` 直接装。
 > 浏览器半的**模块 id 必须等于包名**（`dsh-client-modules` 用解析出的包名当模块身份）。
-> `files` 白名单只放 `lib/` + `handoff.mjs` + `cordis.patch.yml` + `README.md` + `LICENSE`，
-> 开发档案（`DEPLOYMENT-NOTES` / `HANDOFF.md` / `work/` / `test/` / `*.ps1`）**不进包**。
+> `files` 白名单只放 `lib/` + `handoff.mjs` + `cordis.patch.yml` + `README.md` +
+> `SECURITY.md` + `LICENSE`，开发档案（`DEPLOYMENT-NOTES` / `HANDOFF.md` / `work/` /
+> `test/` / `*.ps1`）**不进包**。
+>
+> **能力声明与 CLI 入口（2026-09-22 生态审计后补）**：`dsh.seams: ["fs", "web"]` 显式声明
+> 本插件用到的能力（本地 JSONL 读写 → `fs`；浏览器半同源取数 → `web`）；
+> `bin: { "attention-health-handoff": "./handoff.mjs" }` 让离线 CLI 成为**可声明的入口**。
+> 两者正是 [`dsh-vet`](https://github.com/rogerdigital/dsh-vet) 这类审计工具判断
+> "声明与实际是否一致"的依据 —— 不声明时它只能按 `perm.network-client` 之类的
+> per-capability 规则报警，声明后降为清单项。
+
+> **安全审计（2026-09-22）**：按生态标准 `dsh-vet` 对**实际发布的 npm 包**扫描，
+> 评级 **A**（0 critical / 0 high / **0 medium**）。剩下两条 info 是**预期内**的：
+> `perm.unreachable-files` 只点名 `lib/detect.mjs` 与 `lib/extract.mjs` —— 它们是
+> **测试与离线对齐专用**（见上表与下面的"漂移防护"），不进插件运行时图，
+> 因此从入口做静态可达性分析时确实"不可达"；`perm.network-client` 声明 `web` seam 后
+> 降为 info（"已声明的能力，仅作清单"）。复现方式：`npm pack` → 解包 → `npx dsh-vet .`
+> （**要扫 npm 包，不要扫仓库根**：仓库里的 `test/` `tools/` 会引入与包无关的告警）。
+> 数据去向、能力边界与漏洞报告渠道见 `SECURITY.md`。
 
 > **漂移防护（2026-09-15 全量复核 N-1 / N-5）**：CLI 与插件曾各持一套渲染实现，
 > 第二批修复的 12 项只落到了插件里，于是同一会话会产出**两种质量**的文档

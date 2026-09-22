@@ -83,3 +83,39 @@
   值存在模块私有的 `PROCESS_LAUNCH_TOKENS` WeakMap 里，插件拿不到）。
 - 插件能力面比想象的大：`ctx.on('agent/assistant-stream')` 可逐帧拿到思考流，
   `agent.cancel({ kind:'hook', reason })` 可中止活动 turn（守卫就建立在这两个之上）。
+
+## 7. 发布与隐私（2026-09-22 生态审计后新增）
+
+### 7.1 发布前检查清单（每次发布都跑）
+
+```powershell
+.\test-all.ps1                 # 五套自测（必须 0 失败）
+node tools\make-release.mjs    # 组装产物 + 脱敏 + **身份闸门**（0 命中才放行）
+# 生态审计（第三方标准，需联网；**对 npm 包扫，不要对仓库根扫**）：
+npm pack                       # → dsh-attention-health-x.y.z.tgz
+tar -xzf dsh-attention-health-x.y.z.tgz -C <临时目录>
+cd <临时目录>\package; npx dsh-vet .   # 期望 grade A（0 critical / high / medium）
+```
+
+- **要扫 npm 包，不要扫仓库根**：`test/` `tools/` 不进包，对仓库根扫会得到
+  `obf.dynamic-require` 与一大批 `unreachable-files` 的**假告警**（见 `DEPLOYMENT-NOTES` §70.5）。
+- 报告存档：`<TOOLS>\DSH\留档\attention-health-dsh-vet\`（用 `--json`）。
+
+### 7.2 三条隐私教训（两次同类事故换来的，见审查清单 §AI）
+
+1. **ALLOW 放行 = 扫描盲区**：任何"文件级放行"都要对被放行内容做**人工复核** ——
+   自检样本尤其危险：它天然长得像"该命中的样本"，于是它自身的命中被 `ALLOW` 放行、
+   文件又被 `NO_SANITIZE` 原样复制，**两条防线同时失效**；
+2. **规则修完必须自证覆盖**：改脱敏/扫描规则前，先列出**所有已知形态**
+   （纯短 ID / 短前缀 / 完整 UUID / 公网 IP / 真实盘符路径…）逐一对测 ——
+   事故入口正是"规则能吃的形态"与"实际出现的形态"不一致（16 位 vs 12 位 vs 8 位）；
+3. **引述即泄露**：解释"某值曾被泄露"时**不要复述原值**（第一遍修复就在注释里又写了一次
+   真实前缀，第二次扫描当场抓出）。注释里只写**形态**，不写值。
+
+### 7.3 能力声明（`dsh.seams`）
+
+`package.json` 的 `dsh.seams` 是**对外声明**（审计工具据此比对"声明 vs 实际"）：
+本插件声明 `["fs", "web"]`（本地 JSONL 读写 + 浏览器半同源取数）。
+**改代码时若新增能力（子进程 / 外部网络 / worker），必须同步更新它** ——
+声明与实际不符会被 `perm.seam-mismatch` 报 medium 并拉低评级。
+（`env` / `homedir` 不映射到任何 seam，无需声明；本插件没有 `child_process`，故不需要 `shell`。）

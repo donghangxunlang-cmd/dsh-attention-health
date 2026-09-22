@@ -49,7 +49,7 @@ const ALLOW = {
   'LICENSE': ['user-name'],
   'package.json': ['user-name'],
   // 扫描器自己的**自检 fixture** 里必然有"该命中"的合成样本（`C:\Users\someone`、
-  // `Z:\CodexFiles\...`、`session-deadbeef-1234`（虚构样本）、示例 IP）——只放行这几类；
+  // `E:\CodexFiles\...`、`session-deadbeef-1234`（虚构样本）、示例 IP）——只放行这几类；
   // ⚠️ 2026-09-22 修正：这里原先用的是**真实会话 ID 的前 12 位**（具体值不再复述，
   // 复述即泄露），而本文件会被原样发布 → 等于把真实 ID 前缀发到了公开仓库（用户实测发现）。
   // 自检样本一律用虚构值（`deadbeef` 段），永不使用真实 ID 的任何片段。
@@ -85,7 +85,7 @@ export const RULES = [
   {
     kind: 'session-id',
     // ⚠️ 2026-09-22 修正（用户实测）：旧规则只吃「8 位 + 最多 2 组 4 位」= UUID 前 16 位，
-    // 于是完整 UUID 的**后半段（``）原样留在产物里**（README 示例被抓到）。
+    // 于是完整 UUID 的**后半段（`-a5fd-c8e9fc6ed02d`）原样留在产物里**（README 示例被抓到）。
     // 现在吃整段：8 位 hex + **0~4** 组「-4~12 位 hex」，覆盖三种形态：
     //   ① 纯短 ID（`session-xxxxxxxx`，README「校准留痕」里就是这种）；
     //   ② 短前缀（`session-xxxxxxxx-xxxx`）；

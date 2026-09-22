@@ -14,6 +14,9 @@
     "url": "https://github.com/donghangxunlang-cmd/dsh-attention-health/issues"
   },
   "main": "lib/index.js",
+  "bin": {
+    "attention-health-handoff": "./handoff.mjs"
+  },
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
@@ -24,9 +27,14 @@
     "handoff.mjs",
     "cordis.patch.yml",
     "README.md",
+    "SECURITY.md",
     "LICENSE"
   ],
   "dsh": {
+    "seams": [
+      "fs",
+      "web"
+    ],
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
