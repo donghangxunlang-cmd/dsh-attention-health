@@ -49,7 +49,10 @@ const ALLOW = {
   'LICENSE': ['user-name'],
   'package.json': ['user-name'],
   // 扫描器自己的**自检 fixture** 里必然有"该命中"的合成样本（`C:\Users\someone`、
-  // `Z:\CodexFiles\...`、`session-deadbeef-1234`、示例 IP）——只放行这几类；
+  // `Z:\CodexFiles\...`、`session-deadbeef-1234`（虚构样本）、示例 IP）——只放行这几类；
+  // ⚠️ 2026-09-22 修正：这里原先用的是**真实会话 ID 的前 12 位**（具体值不再复述，
+  // 复述即泄露），而本文件会被原样发布 → 等于把真实 ID 前缀发到了公开仓库（用户实测发现）。
+  // 自检样本一律用虚构值（`deadbeef` 段），永不使用真实 ID 的任何片段。
   // **用户名 / 项目路径 / UUID / 邮箱不放行**：真要把本机身份粘进这个文件，闸门仍然会抓。
   // （`--selftest` 的用例见文件后半段。）
   'scan-identity.mjs': ['user-path', 'tools-path', 'session-id', 'public-ip'],
@@ -81,7 +84,14 @@ export const RULES = [
   // 又**不会被自己的扫描规则再命中** —— 第一版映射成 `session-<8位hex>`，闸门当场自证失败 20 处）
   {
     kind: 'session-id',
-    re: /session-(?!SAMPLE-)[0-9a-f]{8}(?:-[0-9a-f]{4}){0,2}(?:[0-9a-f]{4})?/g,
+    // ⚠️ 2026-09-22 修正（用户实测）：旧规则只吃「8 位 + 最多 2 组 4 位」= UUID 前 16 位，
+    // 于是完整 UUID 的**后半段（``）原样留在产物里**（README 示例被抓到）。
+    // 现在吃整段：8 位 hex + **0~4** 组「-4~12 位 hex」，覆盖三种形态：
+    //   ① 纯短 ID（`session-xxxxxxxx`，README「校准留痕」里就是这种）；
+    //   ② 短前缀（`session-xxxxxxxx-xxxx`）；
+    //   ③ 完整 UUID（`session-8-4-4-4-12`）。
+    // `(?!SAMPLE-)` 保护已脱敏的假 ID（第一版教训：假 ID 不能再被自己的规则命中）。
+    re: /session-(?!SAMPLE-)[0-9a-f]{8}(?:-[0-9a-f]{4,12}){0,4}/g,
     to: null,
   },
   // 裸 UUID
@@ -182,7 +192,7 @@ const SELFTEST_CASES = [
   ['Z:\\CodexFiles\\scripts', 'tools-path'],
   ['E:\\\\CodexFiles\\\\scripts', 'tools-path'],
   ['E:/CodexFiles/scripts', 'tools-path'],
-  ['session-deadbeef-1234', 'session-id'],
+  ['session-deadbeef-1234', 'session-id'], // 虚构样本（绝不使用真实 ID 片段）
   [`${NAME} 的机器`, 'user-name'],
   ['203.0.113.5', 'public-ip'],
 ];

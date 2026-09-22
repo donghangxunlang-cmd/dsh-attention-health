@@ -3001,11 +3001,15 @@ console.log('\n════════ 27. AF 节：中间档 `prepare`（2026-
     String(thin.final.note),
   );
 
-  // 反例：同样成本接近，但余量充足（7.5 轮）→ 仍是 continue，**不许**误报中间档
+  // 反例：同样成本接近，但余量充足（7.5 轮）→ **不许**误报"可交接"。
+  // AG 节（2026-09-22）后这条口径微调：这个 fixture 的省额落在"很小但为正"的带里，
+  // 现在会被**最轻档 `costNote`** 接住（它只是状态陈述、不点亮提示条，也不是建议）
+  // —— 所以断言的是"**不升到 prepare / handoff**"，而不是"必须是 continue"。
   const ample = deriveCompactionPlan({ ...AF_BASE, avgRoundGrowth: 60000 });
   check(
-    'AF 反例：余量充足但未达交接 → 仍判 continue（中间档不越界）',
-    ample.final.advice === 'continue' && ample.cost.freshWinMarginRounds > 2,
+    'AF 反例：余量充足但未达交接 → 不判 prepare / handoff（中间档不越界；最轻档 costNote 允许）',
+    (ample.final.advice === 'continue' || ample.final.advice === 'costNote') &&
+      ample.cost.freshWinMarginRounds > 2,
     `${ample.final.advice} / margin=${ample.cost.freshWinMarginRounds}`,
   );
   // 反例：已经是 handoff 的会话不会被降级成 prepare
@@ -3037,6 +3041,89 @@ console.log('\n════════ 27. AF 节：中间档 `prepare`（2026-
     String(degradedNear.final.reason).includes('已检出退化信号') &&
       String(degradedNear.final.reason).includes('若再次出现打转'),
     String(degradedNear.final.reason).slice(0, 180),
+  );
+}
+
+console.log('\n════════ 28. AG 节：四档梯度 + 会话成熟线（2026-09-22 用户实测）════════');
+// 现场（用户原话）：「对话才 6 轮插件就建议机械交接了，这会导致任务会变得繁琐」。
+// 复核确认数字全成立（省 ¥2.58），但**任务刚展开**就劝换会话会把任务切成碎片，
+// 而"任务连续性 / 重建理解"这些代价不在成本模型里。
+// 规则：轮数 < `matureSessionTurns`（15）时**成本通道**最高判 `prepare`；
+//       **质量通道**（退化 / 守卫）不受限 —— 那是止损，不是打扰。
+{
+  const AG_BASE = {
+    usedTokens: 258366,
+    contextWindow: 1000000,
+    cacheReadTokens: 256640,
+    cacheMissTokens: 190,
+    recentUsage: [{ hit: 249984, total: 250548 }],
+    avgOutputTokens: 1287,
+    usageCount: 68,
+    model: 'deepseek-flash',
+    now: new Date(Date.UTC(2026, 8, 19, 2, 0, 0)),
+    handoffDocTokens: 12000,
+  };
+
+  // ① 成熟线：**同一份账**，只改轮数
+  const mature = deriveCompactionPlan({ ...AG_BASE, avgRoundGrowth: 6000, turnCount: 30 });
+  check(
+    `AG：成熟会话（30 轮 ≥ ${COMPACT_DEFAULTS.matureSessionTurns}）成本划算 → 仍判 handoff（原判定不变）`,
+    mature.final.advice === 'handoff' && mature.final.drivenBy === 'cost',
+    `${mature.final.advice} / ${mature.final.drivenBy}`,
+  );
+  const early = deriveCompactionPlan({ ...AG_BASE, avgRoundGrowth: 6000, turnCount: 8 });
+  check(
+    'AG：同一份账但会话还早（8 轮 < 15）→ 降为 prepare（不催促、任务不被打断）',
+    early.final.advice === 'prepare' && early.final.drivenBy === 'cost',
+    `${early.final.advice} / ${early.final.drivenBy} / turns=8`,
+  );
+  check(
+    'AG：降级后**账照给**（理由里仍能看到省了多少轮），依据是"会话还早"而不是"钱不够"',
+    String(early.final.reason).includes('成熟线') &&
+      String(early.final.reason).includes('8 轮') &&
+      String(early.final.note) === FINAL_NOTES.immatureCostHandoff,
+    `${early.final.note} | ${String(early.final.reason).slice(0, 120)}`,
+  );
+  check(
+    'AG：降级后的建议文案不含"建议机械交接"这类命令性措辞',
+    !String(early.final.adviceText).includes('建议机械交接') &&
+      String(early.final.adviceText).includes('任务边界'),
+    String(early.final.adviceText),
+  );
+
+  // ② 质量通道**不受成熟线限制**：4 轮、但被实时守卫掐断 4 次 → 照旧判交接
+  const qEarly = deriveCompactionPlan({ ...AG_BASE, guardTripCount: 4, turnCount: 4 });
+  check(
+    'AG：质量通道不受成熟线限制（4 轮 + 守卫 4 次 → 仍判 handoff，drivenBy=quality）',
+    qEarly.final.advice === 'handoff' && qEarly.final.drivenBy === 'quality',
+    `${qEarly.final.advice} / ${qEarly.final.drivenBy} / turns=4`,
+  );
+
+  // ③ 最轻档 `costNote`：省额为正、但连门槛的 60% 都不到 → 只说事实，不劝动作
+  const note = deriveCompactionPlan({ ...AG_BASE, avgRoundGrowth: 60000 });
+  check(
+    'AG：省额未达门槛 60% → costNote（最轻档，不是建议）',
+    note.final.advice === 'costNote' && note.final.drivenBy === 'cost' && note.cost.savingYuan > 0,
+    `${note.final.advice} / saving=¥${Number(note.cost.savingYuan).toFixed(4)}`,
+  );
+  check(
+    'AG：costNote 文案不催促（无"建议 / 应当 / 立即 / 请"这类命令性措辞）',
+    !/建议|应当|立即|请/.test(String(note.final.adviceText) + String(note.final.note)),
+    `${note.final.adviceText} / ${note.final.note}`,
+  );
+  check(
+    'AG：costNote 的 note 明说"继续没问题"（它是状态陈述，不是行动）',
+    String(note.final.note).includes('继续没问题') && String(note.final.adviceText).includes('可继续'),
+    `${note.final.adviceText} / ${note.final.note}`,
+  );
+
+  // ④ 老输入不变差：轮数拿不到（turnCount=0）时**不启用**成熟线 —— 无从判断成熟度，
+  //    保持原判，而不是把"缺数据"当成"会话还早"。
+  const noTurns = deriveCompactionPlan({ ...AG_BASE, avgRoundGrowth: 6000, turnCount: 0 });
+  check(
+    'AG：缺轮数（turnCount=0）时不降级 —— 缺数据不改变已有结论',
+    noTurns.final.advice === 'handoff',
+    `${noTurns.final.advice}（turnCount=0）`,
   );
 }
 

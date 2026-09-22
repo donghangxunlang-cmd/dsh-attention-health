@@ -65,6 +65,31 @@ check('有 stateSchema.parse', typeof def.stateSchema?.parse === 'function');
 check('有 wire.viewSchema.parse', typeof def.wire?.viewSchema?.parse === 'function');
 check('有 wire.view', typeof def.wire?.view === 'function');
 
+// ── AG（2026-09-22）：`final.advice` 取值的**单一来源**守卫 ────────────────────
+// 这个取值曾在两处各写一份（判定链的 `finalText` vs `viewSchema` 手写枚举），
+// AG 新增 `costNote` 时就脱节了。漏一档的后果**不是"那一档降级"，而是整条 view 校验失败**；
+// 而它在真实语料上触发 0 次（`work/ag-gradient-scan.mjs` 实测 82 个会话），
+// 测试与线上都看不出来 —— 只有真出现一个"省额很小"的会话才会炸。
+// 现在 schema 直接引用 `ADVICE_VALUES`，这条守卫负责"以后别再手写回去"。
+{
+  const advSchema = def.wire.viewSchema.shape.compactAdvice;
+  const enumValues = advSchema?.options ?? advSchema?._def?.values ?? [];
+  const values = hf.ADVICE_VALUES;
+  check(
+    'AG：viewSchema 的 compactAdvice 引用 ADVICE_VALUES（不再手写第二份清单）',
+    Array.isArray(values) &&
+      values.length > 0 &&
+      enumValues.length === values.length &&
+      values.every((v) => enumValues.includes(v)),
+    `enum=${JSON.stringify(enumValues)} / ADVICE_VALUES=${JSON.stringify(values)}`,
+  );
+  check(
+    'AG：`costNote`（新增最轻档）在 wire 契约里 —— 漏了会让整条 view 校验失败',
+    enumValues.includes('costNote') && Array.isArray(values) && values.includes('costNote'),
+    JSON.stringify(enumValues),
+  );
+}
+
 // ── 实时思考守卫：中止原因必须被正确识别（2026-09-16 用户新增）──
 // host 侧 `agent.cancel({ kind:'hook', reason })` 会把原因写进 `turn/end` 的 aborted reason，
 // 投影据此把它记成"插件主动止损"，界面才能显示确切原因。
@@ -959,7 +984,7 @@ const nfCtx = {
 plugin.apply(nfCtx);
 const nfRes = makeRes();
 await nfRoutes[0].handler(
-  req('/attention-health/handoff?sessionId=session-SAMPLE-7cd91678-0000-000000000000'),
+  req('/attention-health/handoff?sessionId=session-SAMPLE-e00c78c7'),
   nfRes,
 );
 check('会话不存在 → 404（而不是 500）', nfRes.status === 404, `实际 ${nfRes.status}`);

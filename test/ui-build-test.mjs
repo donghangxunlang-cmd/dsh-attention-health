@@ -781,6 +781,34 @@ check('富化：给出缓存命中率（成本折扣的依据）', richText.incl
     new Set([handoffStyle?.color, prepareStyle?.color]).size === 2,
     `${handoffStyle?.color} vs ${prepareStyle?.color}`,
   );
+
+  // AG（2026-09-22）：最轻档 `costNote` —— 它**不是建议**，颜色 / 图形 / 字重
+  // 都要与黄色系的两档建议分得开（浅蓝 + 中点 + 最轻字重）。
+  // 验收来源：AG.4 第 5 条（"UI 侧颜色断言：costNote / prepare / handoff 三色"）。
+  const noteHead = renderHead({
+    ...QUIET,
+    compactAdvice: 'costNote',
+    compactAdviceText: '每轮成本偏高（可继续）',
+    compactAdviceNote: '本会话每轮成本偏高（继续没问题）—— 留意单次塞入的内容量',
+  });
+  const noteStyle = styleOf(noteHead, '每轮成本偏高');
+  const noteIcon = styleOf(noteHead, '·');
+  check(
+    'AG：costNote 用**浅蓝**（最轻一档）+ 最轻字重（400），与黄色系建议分开',
+    noteStyle?.color === '#38bdf8' && noteStyle?.fontWeight === 400,
+    JSON.stringify(noteStyle),
+  );
+  check('AG：costNote 图标是中点「·」（比 prepare 的 ○ 更轻）', noteIcon?.color === '#38bdf8', JSON.stringify(noteIcon));
+  check(
+    'AG：costNote 文案不催促（不含「建议 / 应当 / 立即」这类命令性措辞）',
+    !/建议|应当|立即/.test(JSON.stringify(noteHead)),
+    JSON.stringify(noteHead).slice(0, 160),
+  );
+  check(
+    'AG：三档建议颜色互不相同（浅蓝 / 浅黄 / 黄），不会看混',
+    new Set([handoffStyle?.color, prepareStyle?.color, noteStyle?.color]).size === 3,
+    `${handoffStyle?.color} / ${prepareStyle?.color} / ${noteStyle?.color}`,
+  );
 }
 check(
   '富化：行动建议最多出现两次（折叠行 + 展开区标题）',
