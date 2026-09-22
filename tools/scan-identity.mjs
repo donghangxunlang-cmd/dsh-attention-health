@@ -190,10 +190,13 @@ const SELFTEST_CASES = [
   ['C:\\Users\\someone\\x', 'user-path'],
   ['C:\\\\Users\\\\someone', 'user-path'], // 转义双反斜杠（JSON / 日志里常见）
   ['Z:\\CodexFiles\\scripts', 'tools-path'],
-  ['E:\\\\CodexFiles\\\\scripts', 'tools-path'],
-  ['E:/CodexFiles/scripts', 'tools-path'],
+  ['Z:\\\\CodexFiles\\\\scripts', 'tools-path'],
+  ['Z:/CodexFiles/scripts', 'tools-path'],
   ['session-deadbeef-1234', 'session-id'], // 虚构样本（绝不使用真实 ID 片段）
   [`${NAME} 的机器`, 'user-name'],
+  // ⚠️ 2026-09-22 修正（用户要求"重点检查隐私"）：此处原先用**用户的云服务器真实 IP**
+  // 作为"应命中"样本 —— 与自检会话 ID 同一类事故（自检样本携带真实值，又被 ALLOW 放行）。
+  // 改用 RFC 5737 文档保留地址（`203.0.113.0/24`），规则测试效果不变。
   ['203.0.113.5', 'public-ip'],
 ];
 const SELFTEST_CLEAN = [

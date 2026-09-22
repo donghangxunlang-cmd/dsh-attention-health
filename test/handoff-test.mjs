@@ -3090,6 +3090,14 @@ console.log('\n════════ 28. AG 节：四档梯度 + 会话成熟
       String(early.final.adviceText).includes('任务边界'),
     String(early.final.adviceText),
   );
+  // 实测踩到（`session-SAMPLE-8f723845` 的真实理由）：`fmtFreshLedger()` 里**已经含**
+  // "新开首轮 ¥X → 之后 ¥Y/轮，约 Z 轮摊平"整句，第一版又在它前面手写了一遍 → 同一句出现两次。
+  // 这条断言把"别手写第二遍"钉住（这类重复只有跑真实会话才看得出来）。
+  check(
+    'AG：降级理由里"新开首轮"只出现一次（`fmtFreshLedger()` 已含该句，不得再手写）',
+    (String(early.final.reason).match(/新开首轮/g) ?? []).length === 1,
+    String(early.final.reason).slice(0, 200),
+  );
 
   // ② 质量通道**不受成熟线限制**：4 轮、但被实时守卫掐断 4 次 → 照旧判交接
   const qEarly = deriveCompactionPlan({ ...AG_BASE, guardTripCount: 4, turnCount: 4 });
