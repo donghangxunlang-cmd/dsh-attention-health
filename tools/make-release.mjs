@@ -30,6 +30,9 @@ const PUBLISH = [
   'LICENSE',
   'SECURITY.md',
   'AGENTS.md',
+  // 2026-09-22（dsh-insights 生态标准：补 docs/ 与 CI 两个信号位）
+  'docs/',
+  '.github/',
   '.gitattributes',
   'handoff.mjs',
   'install-package.ps1',

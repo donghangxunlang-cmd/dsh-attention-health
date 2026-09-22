@@ -1211,7 +1211,10 @@ const tmpDoc = buildHandoff({
       type: 'tool/call',
       seq: 3,
       time: 2100,
-      data: { turn: 1, name: 'write', callId: 'w2', arguments: `{"file_path":"${projectRoot.replace(/\\/g, '/')}/work/verify-audit.mjs"}` },
+      // ⚠️ 用具名虚构项目根，**不要**拼真实 projectRoot：CI/临时目录里项目根常在 `/tmp/...` 下，
+      // 那条路径会先命中 tempTag 的"临时产物"分支（`/tmp/`），于是这条"复核/发布脚本"断言假失败
+      // （2026-09-22 Linux 实测）。固定值同时让这条用例跨平台、可复现。
+      data: { turn: 1, name: 'write', callId: 'w2', arguments: '{"file_path":"X:/proj/work/verify-audit.mjs"}' },
     },
     usageEvent(4, 52000),
   ],
@@ -2022,6 +2025,8 @@ check(
 }
 {
   // 配置化：自定义 prices.json 生效；损坏 / 缺失 → 回落内置核对值且**不报错**
+  // ⚠️ 同 guard-test：`work/` 不在版本控制里，新克隆 / CI 环境要先建出来（J.6 治本修法）
+  fs.mkdirSync(path.join(projectRoot, 'work'), { recursive: true });
   const tmpHome = fs.mkdtempSync(path.join(projectRoot, 'work', 'prices-'));
   const prev = process.env.DSH_HOME;
   process.env.DSH_HOME = tmpHome;

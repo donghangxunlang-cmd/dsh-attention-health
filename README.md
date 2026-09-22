@@ -663,6 +663,11 @@ usage     ：reasoningTokens = 256,000（输出预算被打满）
 
 ## 相关文档
 
-- `DEPLOYMENT-NOTES-20260915.md` —— **部署与排障**：一键部署/重启脚本用法（第 8 节）、
-  两个历史故障的根因与修复、四个真实坑的记录与修法（第 9 节）
-- `HANDOFF.md` —— 完整的框架调研结论（需求、环境、技术结论、坑与红线、待验证清单）
+- [`docs/architecture.md`](docs/architecture.md) —— 架构：两个半身、三条实现路径、判定链的单一来源
+- [`docs/development.md`](docs/development.md) —— 开发、测试与发布（含无真实语料环境怎么跑自测、换机清单）
+- [`docs/privacy.md`](docs/privacy.md) —— 数据去向、隐私开关、发布侧脱敏流水线与四条防线
+- [`SECURITY.md`](SECURITY.md) —— 能力面、数据去向声明与漏洞报告渠道
+- [`AGENTS.md`](AGENTS.md) —— 项目常驻约定（每一条都是踩过的坑）
+- `DEPLOYMENT-NOTES-20260915.md` —— （开发档案，不随包分发）**部署与排障**：
+  一键部署/重启脚本用法（第 8 节）、两个历史故障的根因与修复、四个真实坑的记录与修法（第 9 节）
+- `HANDOFF.md` —— （开发档案）完整的框架调研结论（需求、环境、技术结论、坑与红线、待验证清单）

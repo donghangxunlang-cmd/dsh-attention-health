@@ -1,0 +1,74 @@
+# CI —— 公开仓库的常驻护栏（2026-09-22 新增，dsh-insights 生态标准 eng.no-ci 项）
+#
+# 跑什么：
+#   1. 语法检查（lib / CLI / 测试 / 工具）—— 拦住合并前就能发现的一类低级错误；
+#   2. 身份扫描器自检 + 全仓库身份闸门 —— 公开仓库必须 0 命中（隐私纪律的自动化那一道）；
+#   3. 五套自测 —— 用 tools/make-test-fixture.mjs 造合成会话语料（CI 没有真实日志），
+#      期望 715 项 0 失败；本机真实语料回归由 test-all.ps1 负责（719 项）；
+#   4. dsh-vet 对 **npm 包形态**审计 —— 期望 A 级、0 critical / 0 high / 0 medium。
+#
+# 注意：测试只读 $DSH_HOME，写盘一律走 mkdtemp 临时目录（见 AGENTS.md §4 写路径纪律）。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装依赖
+        run: npm install --no-audit --no-fund
+
+      - name: 语法检查
+        run: |
+          for f in lib/*.js lib/*.mjs handoff.mjs test/*.mjs tools/*.mjs; do
+            node --check "$f"
+          done
+          echo "语法检查通过（$(ls lib/*.js lib/*.mjs handoff.mjs test/*.mjs tools/*.mjs | wc -l) 个文件）"
+
+      - name: 身份扫描器自检（规则表必须真的能命中）
+        run: node tools/scan-identity.mjs --selftest
+
+      - name: 身份闸门（公开内容必须 0 命中）
+        run: node tools/scan-identity.mjs .
+
+      - name: 生成合成会话语料
+        run: node tools/make-test-fixture.mjs "$RUNNER_TEMP/ah-home"
+
+      - name: 五套自测（合成语料，期望 715 项）
+        env:
+          DSH_HOME: ${{ runner.temp }}/ah-home
+          DSH_ATTENTION_HEALTH_DIR: ${{ github.workspace }}/lib
+          DSH_ATTENTION_HEALTH_UI_DIR: ${{ github.workspace }}
+        run: |
+          for t in guard-test plugin-test ui-build-test handoff-test crosscheck-test; do
+            echo "──────── $t"
+            node "test/$t.mjs"
+          done
+
+      - name: dsh-vet 审计（npm 包形态，期望 A 级）
+        run: |
+          mkdir -p "$RUNNER_TEMP/pkgout" "$RUNNER_TEMP/pkgx"
+          npm pack --pack-destination "$RUNNER_TEMP/pkgout" --silent
+          tar -xzf "$RUNNER_TEMP"/pkgout/*.tgz -C "$RUNNER_TEMP/pkgx"
+          cd "$RUNNER_TEMP/pkgx/package"
+          npx --yes dsh-vet . | tee "$RUNNER_TEMP/dsh-vet.txt"
+          grep -qE '^grade: [AB]' "$RUNNER_TEMP/dsh-vet.txt" || { echo "❌ dsh-vet 评级低于 B"; exit 1; }
+          for sev in critical high medium; do
+            grep -q "0 $sev" "$RUNNER_TEMP/dsh-vet.txt" || { echo "❌ dsh-vet 出现 $sev 级问题"; exit 1; }
+          done
+          echo "dsh-vet 通过"

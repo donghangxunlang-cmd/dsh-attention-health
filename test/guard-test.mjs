@@ -220,6 +220,9 @@ console.log('\n════════ 2b. Q 节（2026-09-18）：行内复读
 console.log('\n════════ 2c. Q-3：守卫现场落档（append-only，失败不影响守卫）════════');
 {
   // 用项目内 work/ 作临时 DSH_HOME（不写 C 盘，符合用户约定）
+  // ⚠️ `work/` 是不跟踪目录（git 不保存空目录）——新克隆 / CI 里它不存在，
+  //    直接 mkdtemp 会 ENOENT 崩掉整套测试（审查清单 J.6 的"治本修法"）。
+  fs.mkdirSync(path.join(projectRoot, 'work'), { recursive: true });
   const tmpHome = fs.mkdtempSync(path.join(projectRoot, 'work', 'guardlog-'));
   const prevHome = process.env.DSH_HOME;
   process.env.DSH_HOME = tmpHome;
@@ -253,6 +256,7 @@ console.log('\n════════ 2c. Q-3：守卫现场落档（append-on
 
 console.log('\n════════ 2d. 评审 P1-4：两个 JSONL 的大小轮转（磁盘占用有界）════════');
 {
+  fs.mkdirSync(path.join(projectRoot, 'work'), { recursive: true });
   const tmpHome = fs.mkdtempSync(path.join(projectRoot, 'work', 'jsonl-rot-'));
   const prevHome = process.env.DSH_HOME;
   process.env.DSH_HOME = tmpHome;

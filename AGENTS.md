@@ -19,6 +19,10 @@
   只改 `client.js` → 刷新页面即可。
 - 自测：`.\test-all.ps1`（**自动指向线上那份标准包**；也可 `-Dir` / `-UiDir` 指到任意一份，
   例如临时 profile 的安装）。直接 `node test\xxx.mjs` 测的是环境变量未设时的默认位置，容易测错对象。
+- **没有真实语料的环境**（CI / 新克隆 / 换机）：先 `node tools\make-test-fixture.mjs <DSH_HOME>`
+  造合成会话（一富一空，空的那个故意做成"最新"—— 钉住审查清单 C1 的样本选择回归），
+  再设 `DSH_HOME` / `DSH_ATTENTION_HEALTH_DIR` / `DSH_ATTENTION_HEALTH_UI_DIR` 跑五套，
+  期望 **715 项 0 失败**（少掉的 4 项是需要特定真实会话的回归，会自己跳过并打印原因）。
 - `.\deploy.ps1` 已**退役为回退工具**：检测到标准安装就拒绝运行（`-Force` 才绕过）。
   它部署的是旧形态挂载线（`profiles\web\attention-health\` +
   `profiles\node_modules\attention-health-ui\`）—— 两个目录与 patch 里的两条旧行**都还留着**，
@@ -97,6 +101,12 @@ tar -xzf dsh-attention-health-x.y.z.tgz -C <临时目录>
 cd <临时目录>\package; npx dsh-vet .   # 期望 grade A（0 critical / high / medium）
 ```
 
+- **CI 会自动跑**（`.github/workflows/ci.yml`，公开仓库每次 push / PR）：语法检查、
+  身份闸门、五套自测（合成语料 715 项）、dsh-vet A 级门 —— 推送后看一眼 Actions 结果即可，
+  不必在本机重复这四件事。
+- **发布产物内容 = `tools/make-release.mjs` 的 `PUBLISH` 白名单**（含 `docs/`、`.github/`）；
+  新增要公开的目录/文件时**必须同步改白名单**，否则它只会留在开发仓库（AJ.7 的
+  `SECURITY.md` 漏项就是这么来的）。
 - **要扫 npm 包，不要扫仓库根**：`test/` `tools/` 不进包，对仓库根扫会得到
   `obf.dynamic-require` 与一大批 `unreachable-files` 的**假告警**（见 `DEPLOYMENT-NOTES` §70.5）。
 - 报告存档：`<TOOLS>\DSH\留档\attention-health-dsh-vet\`（用 `--json`）。
