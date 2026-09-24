@@ -11,7 +11,8 @@
  *
  * 用法：
  *   node tools/make-release.mjs [输出目录]
- *   默认输出：<TOOLS>\DSH\留档\attention-health-release-<日期>
+ *   默认输出根目录：`DSH_ATTENTION_HEALTH_RELEASE_DIR` → `DSH_ATTENTION_HEALTH_PKG_DIR` 的
+ *   父目录 → 当前工作目录（**刻意不写死本机路径**，见下方 `outRoot` 的注释）
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -54,9 +55,26 @@ const FORBIDDEN = ['DEPLOYMENT-NOTES', 'HANDOFF.md', 'work/', '.git/', 'attentio
  */
 const NO_SANITIZE = new Set(['tools/scan-identity.mjs']);
 
+/**
+ * 默认输出根目录（2026-09-22 开发侧 review 补）：**不写死本机路径**。
+ *
+ * 为什么必须改：本文件在发布白名单里（`tools/` 公开），而脱敏会把写死的本机路径替换成
+ * `<TOOLS>` 占位符 —— 产物里的 `make-release.mjs` 默认输出就成了含 `<` `>` 的**非法路径**，
+ * 别人一跑就崩。这与 §71.6 修的 `install-package.ps1` / `npm-publish.ps1` 是**同一类问题**，
+ * 只是漏在了这个文件上（它不在那批 `*.ps1` 里，review 时才发现）。
+ *
+ * 探测顺序：命令行参数 → `DSH_ATTENTION_HEALTH_RELEASE_DIR` → **包目录的父目录**
+ * （`DSH_ATTENTION_HEALTH_PKG_DIR` 的 dirname：本机两者本来就都放在留档区）→ 当前工作目录。
+ */
+const outRoot =
+  process.env.DSH_ATTENTION_HEALTH_RELEASE_DIR ??
+  (process.env.DSH_ATTENTION_HEALTH_PKG_DIR
+    ? path.dirname(process.env.DSH_ATTENTION_HEALTH_PKG_DIR)
+    : process.cwd());
+
 const outDir =
   process.argv[2] ??
-  path.join('<TOOLS>\\DSH\\留档', `attention-health-release-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`);
+  path.join(outRoot, `attention-health-release-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`);
 
 // ── 1) 组装 + 脱敏 ──
 const copied = [];

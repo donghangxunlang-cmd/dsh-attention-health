@@ -603,6 +603,26 @@ const richPayload = {
   avgRoundGrowth: 68519,
 };
 const richProbe = render([true], { useProjection: () => richPayload });
+
+// ── S9（AT 节 2026-09-24，用户实测「同一会话 2 倍价差」）──────────────────────
+// 官方**高峰价就是空闲价的 2 倍**：不标档位时，用户在不同时段看到两个差一倍的数字，
+// 会以为数据坏了 —— 这正是 S9 的现场。断言两条：① 空闲档的成本行含「空闲价」；
+// ② 高峰档含「高峰价」且**与空闲档文案不同**（防"把标签删回去"）。
+const peakProbe = render([true], {
+  useProjection: () => ({
+    ...richPayload,
+    costPriceTier: 'peak',
+    costPriceLabel: '价格：内置核对值 2026-09-18 · 高峰价（工作日 9-12/14-18）',
+  }),
+});
+const offCostLine = (JSON.stringify(richProbe.out).match(/继续\s*¥[^"\\]{0,48}/) ?? [''])[0];
+const peakCostLine = (JSON.stringify(peakProbe.out).match(/继续\s*¥[^"\\]{0,48}/) ?? [''])[0];
+check('S9：成本行带价格档位 —— 空闲档显示「空闲价」', offCostLine.includes('空闲价'), offCostLine);
+check(
+  'S9：高峰档显示「高峰价」，且与空闲档文案不同（防回退）',
+  peakCostLine.includes('高峰价') && peakCostLine !== offCostLine,
+  `${offCostLine} ｜ ${peakCostLine}`,
+);
 const richText = JSON.stringify(richProbe.out);
 check(
   '富化：轮数旁边给出**分母**（按每轮 +N；L 节后移入 ⓘ，仍可查到）',

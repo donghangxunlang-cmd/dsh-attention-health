@@ -69,9 +69,8 @@ for t in guard-test plugin-test ui-build-test handoff-test crosscheck-test; do n
 
 ```powershell
 .\test-all.ps1                  # 1) 五套自测 0 失败
-node tools\make-release.mjs     # 2) 组装脱敏产物 + 身份闸门（0 命中才放行）
-# 3) 对 npm 包形态跑生态审计（第三方标准，需联网）
-cd <TOOLS>\DSH\留档\attention-health-release-<日期>
+node tools\make-release.mjs     # 2) 组装脱敏产物 + 身份闸门（0 命中才放行）；它会打印输出目录
+# 3) 对 npm 包形态跑生态审计（第三方标准，需联网）—— 在**上一步打印的脱敏产物目录**里做：
 npm pack
 tar -xzf dsh-attention-health-*.tgz -C <临时目录>
 cd <临时目录>\package; npx dsh-vet .     # 期望 grade A
@@ -98,7 +97,8 @@ cd <脱敏产物目录>
 ## 5. 安装 / 换机
 
 ```powershell
-.\install-package.ps1     # 打包（tgz 落在 <TOOLS>\DSH\留档\attention-health-pkg\）+ 装进 profile
+.\install-package.ps1     # 打包（tgz 落在 -PkgDir / $env:DSH_ATTENTION_HEALTH_PKG_DIR；
+                          #   两者都没给时是 <DSH_HOME>\attention-health-pkg）+ 装进 profile
 .\restart-attention-health.ps1   # 改 host 半后重启 + 14 项运行时验证
 ```
 

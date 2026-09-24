@@ -1807,7 +1807,7 @@ check(
 
 // 对照 2（2026-09-16 用户重定位）：占声明 80%（官方线本身）→ **不再劝手动压缩**。
 // 该点手动压要一次性 ¥0.5、回本 35 轮，而到官方线只剩 0~1 轮 —— 必然摊不完；
-// 官方到线会先做零 token 无损修剪，可能根本不需要摘要。
+// 官方到线会先做零 token 裁剪（仍会丢弃工具结果中段），可能根本不需要摘要。
 const urgentBand = deriveCompactionPlan({ usedTokens: 800000, contextWindow: 1000000, avgRoundGrowth: 20000 });
 check(
   '对照：到官方线（80% 声明）→ 继续（不劝手动压缩）',
@@ -2385,6 +2385,19 @@ check(
 check(
   'N-6：文档把有效窗口的 0.6 系数写成可调项',
   n6Doc.markdown.includes(`${COMPACT_DEFAULTS.effectiveWindowRatio} 系数`),
+);
+// ── AT 节（2026-09-24）两条表注（三方案表**无条件渲染**，所以 n6Doc 就是合适样本）──
+check(
+  'AT-S6：三方案表注明 H 是**对比窗口**（不代表压缩 / 交接后只能再跑 H 轮）',
+  n6Doc.markdown.includes('对比窗口') && n6Doc.markdown.includes('只能再跑 H 轮'),
+  n6Doc.markdown.split('\n').find((l) => l.includes('对比窗口')) ?? '(无该行)',
+);
+check(
+  'AT-S5：三方案表注明压缩成本取决于摘要缓存命中（实测约 28 倍、不是账单）',
+  n6Doc.markdown.includes('压缩成本取决于摘要请求能否复用缓存') &&
+    n6Doc.markdown.includes('28 倍') &&
+    n6Doc.markdown.includes('不是账单'),
+  n6Doc.markdown.split('\n').find((l) => l.includes('28 倍')) ?? '(无该行)',
 );
 
 // ── 23h. 校准留痕：交接历史（N-6 建议 1）──

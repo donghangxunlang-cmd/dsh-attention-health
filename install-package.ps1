@@ -36,6 +36,25 @@ $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFIL
 
 # ── 工具位置（与 deploy.ps1 同一套探测顺序）─────────────────────────────────
 $nodeDir = $env:DSH_NODE_DIR
+# 最后一档兜底（2026-09-22 开发侧 review 补）：本进程若由 node 启动（最典型就是在 DSH 的
+# pwsh 工具里跑），父进程的可执行文件就是现成可用的 node。理由与 `test-all.ps1` 同一份：
+# 用户级环境变量要"新开终端"才生效，而 DSH 是长驻进程，它 spawn 的 pwsh 拿到的是启动时的
+# 环境快照；从父进程推导既不写死本机路径（写死的会被脱敏成 `<TOOLS>`），也不依赖本机约定。
+function Get-ParentNodeExe {
+    try {
+        $me = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $PID) -ErrorAction Stop
+        if (-not $me) { return $null }
+        $parent = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $me.ParentProcessId) -ErrorAction Stop
+        if ($parent -and $parent.Name -eq 'node.exe' -and $parent.ExecutablePath -and
+            (Test-Path -LiteralPath $parent.ExecutablePath)) {
+            return $parent.ExecutablePath
+        }
+    } catch {
+        # WMI 不可用 → 静默跳过
+    }
+    return $null
+}
+
 function Resolve-NodeExe {
     foreach ($c in @(
             $env:DSH_NODE_EXE,
@@ -47,8 +66,37 @@ function Resolve-NodeExe {
     }
     $cmd = Get-Command node -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
+    $fromParent = Get-ParentNodeExe
+    if ($fromParent) { return $fromParent }
     throw '找不到 node.exe（可设 $env:DSH_NODE_EXE 或 $env:DSH_NODE_DIR 指定）'
 }
+# dsh 入口的最后一档兜底（2026-09-22 开发侧 review 补）：DSH 是用
+# `@deepseek-ai/dsh-subprocess-local` 的 `runner.js` 启动子进程的 —— 从**父进程命令行**里
+# 那个 runner.js 的路径，就能推出同一个 `node_modules` 树里的 dsh 入口。
+# 于是在 DSH 的 pwsh 工具里跑本脚本**不需要任何环境变量**，也不必写死任何本机路径。
+function Get-DshBinFromAncestors {
+    try {
+        $me = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $PID) -ErrorAction Stop
+        if (-not $me) { return $null }
+        $parent = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $me.ParentProcessId) -ErrorAction Stop
+        if (-not $parent) { return $null }
+        # ⚠️ 按 **token** 切分后逐段判断，**不要**用"从字符串开头非贪婪匹配路径"的正则 ——
+        # 后者会把 `node.exe` 那一段也吞进同一个匹配（实测踩到：组 1 变成
+        # `…\nodejs\node.exe …\dsh-official`，推导出的路径根本不存在，于是这一档静默失效）。
+        $suffix = '\node_modules\@deepseek-ai\dsh-subprocess-local\lib\runner.js'
+        foreach ($tok in ([string]$parent.CommandLine -replace '"', '' -split '\s+')) {
+            if ($tok.EndsWith($suffix, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $root = $tok.Substring(0, $tok.Length - $suffix.Length)
+                $guess = Join-Path $root 'node_modules\@deepseek-ai\dsh\lib\bin.js'
+                if (Test-Path -LiteralPath $guess) { return $guess }
+            }
+        }
+    } catch {
+        # WMI 不可用 → 静默跳过
+    }
+    return $null
+}
+
 function Resolve-DshBin {
     foreach ($c in @(
             $env:DSH_BIN,
@@ -62,10 +110,17 @@ function Resolve-DshBin {
         $guess = Join-Path (Split-Path -Parent $cmd.Source) 'node_modules\@deepseek-ai\dsh\lib\bin.js'
         if (Test-Path -LiteralPath $guess) { return $guess }
     }
+    $fromParent = Get-DshBinFromAncestors
+    if ($fromParent) { return $fromParent }
     throw '找不到 dsh 的 bin.js（可设 $env:DSH_BIN 指定，或把 dsh 加入 PATH）'
 }
 $nodeExe = Resolve-NodeExe
 $dshBin  = Resolve-DshBin
+
+# `$nodeDir` 来自环境变量，可能为空（例如在 DSH 会话里用户级变量还没生效）。
+# 此时从**最终解析到的 node.exe** 反推它的目录 —— `pnpm.cmd` / `npm.cmd` 都是它的
+# **同目录伙伴**，所以"父进程兜底找到 node"的场景也能顺带找到 pnpm（2026-09-22 review 补）。
+if (-not $nodeDir -and $nodeExe) { $nodeDir = Split-Path -Parent $nodeExe }
 
 # pnpm 必须能被 `dsh plugin` 的子进程找到 → 本进程临时前置 node 目录（不永久改系统 PATH）
 if (Test-Path -LiteralPath (Join-Path $nodeDir 'pnpm.cmd')) {
@@ -77,6 +132,12 @@ if (-not $pnpm) { throw '找不到 pnpm（可设 $env:DSH_NODE_DIR 指向含 pnp
 $pkgOut = if ($PkgDir) { $PkgDir }
 elseif ($env:DSH_ATTENTION_HEALTH_PKG_DIR) { $env:DSH_ATTENTION_HEALTH_PKG_DIR }
 else { Join-Path $dshHome 'attention-health-pkg' }
+# 精确的 C 盘防御（2026-09-22 review 补）：兜底目录跟着 `$DSH_HOME`，而本机 `$DSH_HOME` 就在
+# C 盘 —— 一旦环境变量没生效（例如在 DSH 会话里），产物就会安静地落进 C 盘，
+# 既违反"产物不进 C 盘"的约定，又会**换掉 profile 记住的那个稳定路径**（换位置后再 install 找不到）。
+if ($pkgOut -match '^[Cc]:') {
+    Write-Warning ("产物目录落在 C 盘（{0}）。本项目约定产物不进 C 盘，且 profile 里记的就是这个路径 —— 请用 -PkgDir 或环境变量 DSH_ATTENTION_HEALTH_PKG_DIR 指到一个稳定目录。" -f $pkgOut)
+}
 New-Item -ItemType Directory -Force -Path $pkgOut | Out-Null
 
 Write-Host ''

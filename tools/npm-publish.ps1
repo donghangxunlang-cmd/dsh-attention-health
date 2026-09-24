@@ -35,6 +35,26 @@ if (-not (Test-Path -LiteralPath (Join-Path $Dir 'package.json'))) {
     throw "不是包目录（没有 package.json）：$Dir"
 }
 
+# 最后一档兜底（2026-09-22 开发侧 review 补）：本进程若由 node 启动（最典型就是在 DSH 的
+# pwsh 工具里跑），父进程的可执行文件就是现成可用的 node；`npm.cmd` 之类**同目录的伙伴**
+# 也能一并推出来。理由见 `test-all.ps1` 同一份注释：用户级环境变量要"新开终端"才生效，
+# 而 DSH 是长驻进程，它的子进程拿不到后来设的变量 —— 从父进程推导既不写死本机路径
+# （写死的会被发布脱敏成 `<TOOLS>`，产物里的脚本当场失效），也不依赖任何本机约定。
+function Get-ParentNodeExe {
+    try {
+        $me = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $PID) -ErrorAction Stop
+        if (-not $me) { return $null }
+        $parent = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $me.ParentProcessId) -ErrorAction Stop
+        if ($parent -and $parent.Name -eq 'node.exe' -and $parent.ExecutablePath -and
+            (Test-Path -LiteralPath $parent.ExecutablePath)) {
+            return $parent.ExecutablePath
+        }
+    } catch {
+        # WMI 不可用 → 静默跳过
+    }
+    return $null
+}
+
 function Resolve-Exe {
     param([string[]]$Candidates, [string]$Name)
     foreach ($c in $Candidates) {
@@ -42,6 +62,12 @@ function Resolve-Exe {
     }
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
+    $fromParent = Get-ParentNodeExe
+    if ($fromParent) {
+        if ($Name -eq 'node') { return $fromParent }
+        $sibling = Join-Path (Split-Path -Parent $fromParent) $Name
+        if (Test-Path -LiteralPath $sibling) { return $sibling }
+    }
     throw "找不到 $Name（可设环境变量指定，或把它加入 PATH）"
 }
 

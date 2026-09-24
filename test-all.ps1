@@ -26,6 +26,29 @@ $ErrorActionPreference = 'Stop'
 $root    = $PSScriptRoot
 $dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $env:USERPROFILE '.dsh' }
 
+# 最后一档兜底（2026-09-22 开发侧 review 补）：**本进程若由 node 启动**（最典型的场景就是
+# 在 DSH 的 pwsh 工具里跑脚本），父进程的可执行文件就是一个现成可用的 node。
+#
+# 为什么必须有它：用户级环境变量要"新开终端"才生效，而 **DSH 是长驻进程** —— 它 spawn 的
+# pwsh 继承的是 DSH **启动时**的环境快照，于是后来设的 `DSH_NODE_DIR` 在会话里根本看不到；
+# 而本机 PATH 里又没有 node（实测：这样跑 `test-all.ps1` 会直接抛"找不到 node.exe"）。
+# 从父进程推导**不必写死任何本机路径**（写死的会被发布脱敏成 `<TOOLS>`，产物里的脚本当场失效），
+# 也不依赖任何本机约定。手动开终端时父进程是终端程序 → 这一档自然跳过，不影响原行为。
+function Get-ParentNodeExe {
+    try {
+        $me = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $PID) -ErrorAction Stop
+        if (-not $me) { return $null }
+        $parent = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $me.ParentProcessId) -ErrorAction Stop
+        if ($parent -and $parent.Name -eq 'node.exe' -and $parent.ExecutablePath -and
+            (Test-Path -LiteralPath $parent.ExecutablePath)) {
+            return $parent.ExecutablePath
+        }
+    } catch {
+        # WMI 不可用（受限环境）→ 静默跳过，让调用方抛它自己那句可操作的错误
+    }
+    return $null
+}
+
 function Resolve-NodeExe {
     foreach ($c in @(
             $env:DSH_NODE_EXE,
@@ -37,6 +60,8 @@ function Resolve-NodeExe {
     }
     $cmd = Get-Command node -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
+    $fromParent = Get-ParentNodeExe
+    if ($fromParent) { return $fromParent }
     throw '找不到 node.exe（可设 $env:DSH_NODE_EXE 指定）'
 }
 $nodeExe = Resolve-NodeExe

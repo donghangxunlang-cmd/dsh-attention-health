@@ -28,7 +28,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          # 钉在 `package.json` 的 engines 要求的**最低**版本（`>=22.19.0`）——
+          # 测最低支持版本才抓得到"用了更高版本才有的 API"这类兼容问题
+          # （本项目就依赖 `zlib.zstdCompressSync`，它要 Node ≥ 22.15；
+          #  `make-test-fixture.mjs` 里有显式版本检查兜底）。
+          node-version: '22.19.0'
 
       - name: 安装依赖
         run: npm install --no-audit --no-fund
@@ -66,7 +70,10 @@ jobs:
           npm pack --pack-destination "$RUNNER_TEMP/pkgout" --silent
           tar -xzf "$RUNNER_TEMP"/pkgout/*.tgz -C "$RUNNER_TEMP/pkgx"
           cd "$RUNNER_TEMP/pkgx/package"
-          npx --yes dsh-vet . | tee "$RUNNER_TEMP/dsh-vet.txt"
+          # ⚠️ **锁版本**：不锁的话上游发新版（新规则 / 更高的判定）会让 CI 在没有改过
+          # 本仓库代码的情况下**突然变红** —— 那是"别人的改动"污染我们的护栏。
+          # 升级 dsh-vet 是一次**显式动作**（改这一行 + 本地重扫存档，见 AGENTS §7.1）。
+          npx --yes <EMAIL> . | tee "$RUNNER_TEMP/dsh-vet.txt"
           grep -qE '^grade: [AB]' "$RUNNER_TEMP/dsh-vet.txt" || { echo "❌ dsh-vet 评级低于 B"; exit 1; }
           for sev in critical high medium; do
             grep -q "0 $sev" "$RUNNER_TEMP/dsh-vet.txt" || { echo "❌ dsh-vet 出现 $sev 级问题"; exit 1; }
