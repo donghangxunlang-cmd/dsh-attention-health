@@ -1,6 +1,6 @@
 {
   "name": "dsh-attention-health",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "DeepSeek Harness 插件：内容退化检测（思考打转/复读）+ 继续 vs 交接成本账 + 零模型交接文档（host + web UI 双面）",
   "type": "module",
   "license": "MIT",

@@ -41,7 +41,7 @@
 - **两个必踩的 pnpm 坑**：
   1. `add` 必须带 `-w` —— profile 自身就是 workspace 根，否则 `ERR_PNPM_ADDING_TO_ROOT`；
   2. **pnpm 主版本要对得上** —— profile 的 `node_modules\.modules.yaml` 记着创建它的 pnpm
-     （本机 web profile 是 `<EMAIL>` / `virtualStoreDirMaxLength=60`），
+     （本机 web profile 是 `pnpm@11.19.0` / `virtualStoreDirMaxLength=60`），
      用 pnpm 9 去 `add` 会报 `ERR_PNPM_VIRTUAL_STORE_DIR_MAX_LENGTH_DIFF`。**用 pnpm 11**。
 - **组合 URL 的坑**：客户端 bundle 走 `/plugins/??a/client.js&b/client.js&rev=…` ——
   **只有第一条前面是 `??`，后面的前面是 `&`**。用正则找包名时别写 `/<名字>/client.js`

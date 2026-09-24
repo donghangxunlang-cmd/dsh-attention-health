@@ -99,7 +99,12 @@ export const RULES = [
   // 用户名（裸出现）—— 同样用拼接出来的名字构造，避免源码里出现连续字面量
   { kind: 'user-name', re: new RegExp(USER_NAME, 'g'), to: '<USER>' },
   // 邮箱
-  { kind: 'email', re: /\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b/g, to: '<EMAIL>' },
+  // ⚠️ 2026-09-24 收紧（审查清单 AU 节）：原正则 `\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b` 会把
+  // **`包名@版本号`** 也当邮箱 —— `dsh-vet@0.4.0`（CI 里的 npx 目标）、`pnpm@11.19.0`
+  // （AGENTS 文档）都被替换成 `<EMAIL>`，导致公开仓 CI 直接红灯。
+  // 现在要求顶级域为**纯字母**（≥2 位），`@数字.数字` 形态不再命中；常见邮箱形态仍命中
+  //（自检用例见下方 SELFTEST_CASES —— 用例用拼接构造，避免本文件自己被这条规则命中）。
+  { kind: 'email', re: /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)*\.[a-zA-Z]{2,}\b/g, to: '<EMAIL>' },
   // 公网 IP（排除 127.0.0.1 / 10.x / 192.168.x / 172.16-31.x / 0.0.0.0）
   {
     kind: 'public-ip',
@@ -198,6 +203,9 @@ const SELFTEST_CASES = [
   // 作为"应命中"样本 —— 与自检会话 ID 同一类事故（自检样本携带真实值，又被 ALLOW 放行）。
   // 改用 RFC 5737 文档保留地址（`203.0.113.0/24`），规则测试效果不变。
   ['203.0.113.5', 'public-ip'],
+  // AU 节补：邮箱规则本身必须仍能命中（避免收紧过头）。
+  // ⚠️ 用**拼接构造**：源码里不能出现连续的邮箱字面量，否则扫描器会命中自己（本文件不放行 email 类）。
+  ['someone' + '@' + 'example.com', 'email'],
 ];
 const SELFTEST_CLEAN = [
   'session-SAMPLE-deadbeef', // 我们自己的假 ID，绝不能再命中
@@ -205,6 +213,9 @@ const SELFTEST_CLEAN = [
   'E:\\<TOOLS>\\scripts',
   '127.0.0.1 与 192.168.1.7',
   '<PROJECT>/lib/index.js',
+  // AU 节（2026-09-24）：`包名@版本号` **不是**邮箱 —— 这两个形态曾把公开仓 CI 与文档改坏
+  'dsh-vet@0.4.0',
+  'pnpm@11.19.0',
 ];
 
 if (process.argv.includes('--selftest')) {

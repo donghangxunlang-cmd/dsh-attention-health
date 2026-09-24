@@ -73,7 +73,7 @@ jobs:
           # ⚠️ **锁版本**：不锁的话上游发新版（新规则 / 更高的判定）会让 CI 在没有改过
           # 本仓库代码的情况下**突然变红** —— 那是"别人的改动"污染我们的护栏。
           # 升级 dsh-vet 是一次**显式动作**（改这一行 + 本地重扫存档，见 AGENTS §7.1）。
-          npx --yes <EMAIL> . | tee "$RUNNER_TEMP/dsh-vet.txt"
+          npx --yes dsh-vet@0.4.0 . | tee "$RUNNER_TEMP/dsh-vet.txt"
           grep -qE '^grade: [AB]' "$RUNNER_TEMP/dsh-vet.txt" || { echo "❌ dsh-vet 评级低于 B"; exit 1; }
           for sev in critical high medium; do
             grep -q "0 $sev" "$RUNNER_TEMP/dsh-vet.txt" || { echo "❌ dsh-vet 出现 $sev 级问题"; exit 1; }
