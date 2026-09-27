@@ -1,8 +1,16 @@
 # dsh-attention-health
 
-**会话越跑越傻、越跑越贵的时候，你需要一个"该不该交接"的判断和一个可信的交接文档。**
+**DeepSeek Harness（DSH）长会话的退化守卫与交接工具。**
 
-这个插件读**真实会话日志**（不联网、零 token）做三件事：
+当 DSH 在长任务中出现思考打转、回答复读，或你准备换新会话继续任务时，本插件从本地会话日志给出可核对的退化信号与交接建议，并生成不依赖模型总结的 Markdown 交接文档。实时守卫检测到疑似思考空转时会中止当前生成；插件不会自动创建新会话，也不会上传日志。
+
+> English: A local DSH plugin for long sessions. It detects reasoning loops and repeated output, can stop a suspected runaway turn, and creates a model-free handoff from session logs.
+
+**适合**：经常运行长会话、遇过模型复读或空转、需要把未完成任务带到新会话的用户。**如果只想看 token 占用或费用统计**，可先看专门的 `dsh-context`。
+
+**使用前须知**：守卫命中时会中止当前生成；命中记录默认在本地保留思考尾部 500 字。设置 `DSH_ATTENTION_HEALTH_GUARD_TAIL=0` 可改为只记录哈希、长度与首尾各 40 字。详见下方「隐私与威胁模型」。
+
+这个插件读**本地会话日志**（不联网、不额外调用模型）做三件事：
 
 1. **内容退化检测** —— 思考打转、输出复读、守卫命中；
 2. **"继续 vs 交接"的账** —— 用官方价格与真实缓存命中率，算清换会话划不划算；
@@ -23,7 +31,7 @@ dsh plugin --profile web add -w dsh-attention-health
 - **`-w` 不能省**：profile 自身是 pnpm workspace 根，否则会报 `ERR_PNPM_ADDING_TO_ROOT`；
 - 包管理器请用**与 profile 一致的 pnpm 主版本**（profile 的 `node_modules/.modules.yaml` 记着
   创建它的版本；版本不一致会报 `ERR_PNPM_VIRTUAL_STORE_DIR_MAX_LENGTH_DIFF`）；
-- 从源码/GitHub 安装：`dsh plugin --profile web add -w github:<你的用户名>/dsh-attention-health`；
+- 从 GitHub 安装：`dsh plugin --profile web add -w github:donghangxunlang-cmd/dsh-attention-health`；
 - 卸载：`dsh plugin --profile web remove -w dsh-attention-health`。
 
 装完**必须重启 DSH**（插件行不会热加载；浏览器半只需刷新页面）。
@@ -33,7 +41,7 @@ dsh plugin --profile web add -w dsh-attention-health
 ## 关于本项目
 
 由 AI 主导开发——需求、验收标准与真实场景测试由作者提出，代码、测试与文档由 AI 在长程会话中编写，
-并经过多轮独立审查与真实数据校准（**670 项自动化测试**；阈值来自 2,244 个真实思考块与 79 个会话实测）。
+并经过多轮独立审查与真实数据校准（五套自动化测试；阈值来自 2,244 个真实思考块与 79 个会话实测）。
 它不是随手生成的玩具，也不是专业团队打磨的产品。
 
 **维护状态**：个人项目，维护能力有限；欢迎 issue 与 PR，但**不承诺 SLA**。

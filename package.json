@@ -1,7 +1,7 @@
 {
   "name": "dsh-attention-health",
   "version": "0.1.2",
-  "description": "DeepSeek Harness 插件：内容退化检测（思考打转/复读）+ 继续 vs 交接成本账 + 零模型交接文档（host + web UI 双面）",
+  "description": "DeepSeek Harness 长会话守卫：检测思考循环和输出复读，按本地日志建议何时交接，并生成无需额外模型调用的交接文档",
   "type": "module",
   "license": "MIT",
   "author": "东寒云浪",
@@ -60,10 +60,15 @@
   "keywords": [
     "deepseek-harness",
     "dsh",
+    "dsh-plugin",
     "cordis",
     "plugin",
     "context",
+    "session-health",
+    "reasoning-loop",
+    "repetition-guard",
     "handoff",
+    "session-handoff",
     "projection"
   ]
 }

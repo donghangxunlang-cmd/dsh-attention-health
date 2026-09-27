@@ -26,7 +26,7 @@
 ### 有真实语料（维护者本机，首选）
 
 ```powershell
-.\test-all.ps1        # 自动指向线上标准安装；期望 719 项 0 失败
+.\test-all.ps1        # 自动指向线上标准安装；以脚本汇总为准，期望 0 失败
 ```
 
 五套测试各自也以 `test/*.mjs -Dir` 或环境变量覆盖被测目录：
@@ -43,7 +43,7 @@ export DSH_HOME="$RUNNER_TEMP/ah-home"
 export DSH_ATTENTION_HEALTH_DIR="$PWD/lib"
 export DSH_ATTENTION_HEALTH_UI_DIR="$PWD"
 for t in guard-test plugin-test ui-build-test handoff-test crosscheck-test; do node "test/$t.mjs"; done
-# 期望 715 项 0 失败（少掉的 4 项是"依赖特定真实会话"的回归，会自动跳过并打印原因）
+# 以脚本汇总为准，期望 0 失败；依赖特定真实会话的回归会跳过并打印原因
 ```
 
 第二条会话是**故意**做的"最新但空"形态：审查清单 C1 的假失败根因就是
@@ -80,7 +80,7 @@ cd <临时目录>\package; npx dsh-vet .     # 期望 grade A
 （`obf.dynamic-require`、大批 `unreachable-files` 假告警）。
 
 CI（`.github/workflows/ci.yml`）在公开仓库上自动跑同样四件事：语法检查、身份闸门、
-五套自测（合成语料 715 项）、dsh-vet（A 级门）。推送后看一眼 Actions 结果即可。
+五套自测（合成语料，失败数须为 0）、dsh-vet（A 级门）。推送后看一眼 Actions 结果即可。
 
 ### npm 发布（需人工登录）
 
