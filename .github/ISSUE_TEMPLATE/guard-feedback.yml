@@ -1,0 +1,47 @@
+name: 守卫误报 / 漏报
+description: 帮助复核一次中止或漏检；优先描述结构或提供合成样本。
+title: "[守卫反馈] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        GUARD_TAIL=0 仍保留首尾各 40 字；reason / detail 也可能含原文。
+        请勿直接附上 guard-trips.jsonl、完整日志、交接文档或带 token 的页面地址。
+        无法提供样本也可以提交，结论可能暂时标记为“无法判断”。
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 你观察到的情况
+      options:
+        - 正常生成被中止（疑似误报）
+        - 已经复读空转但没有中止（疑似漏报）
+        - 中止合理，提供真实使用反馈
+        - 暂时无法判断
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境与配置
+      description: 系统、Node / DSH / 插件版本、安装来源、模型名、GUARD_TAIL 值（默认 / 0 / 自定义）。不要包含密钥或接口凭据。
+    validations:
+      required: true
+  - type: textarea
+    id: observation
+    attributes:
+      label: 预期与实际结果
+      description: 是思考还是回答？是否含重复引用、表格或代码？是否发生中止？若知道，可填 repeat-line / repeat-inline / spinning / short-line-repeat。原因文本先人工检查。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 可选的合成最小样本
+      description: 用虚构内容保持重复次数、换行和大致长度。请注明是否仍能复现；不要直接粘贴私人思考原文。
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 提交前检查
+      options:
+        - label: 我已逐项检查内容，没有直接上传私人日志或未脱敏的守卫记录。
+          required: true

@@ -12,9 +12,12 @@
  *   6. 交接生成交互：点击 → 本地生成 → 新开会话 → 预填（不发送）
  *   7. 未知 require 会被暴露（提前发现基座外依赖）
  *
- * ⚠️ **被测目录是运行时的真实位置**：`profiles/node_modules/attention-health-ui`。
- * 早期版本把包放在 `profiles/web/attention-health-ui`，那是一份运行时不读取的
- * 死副本 —— 测它会得到"测试通过但跑的是另一份"的假象。
+ * ⚠️ **被测目录是运行时的真实位置**：标准包形态下是
+ * `<profile>/node_modules/dsh-attention-health`（profile 名由 `tools/profile-paths.mjs` 探测，
+ * 不写死 `web` —— 2026-09-30 本机 profile 改成 `desktop` 后，写死的路径让本套测试
+ * 静默测到一份**旧的残留副本**，报出 11 条假失败）。早期版本把包放在
+ * `profiles/node_modules/attention-health-ui`，那是一份运行时不读取的死副本 ——
+ * 测它会得到"测试通过但跑的是另一份"的假象。
  *
  * 运行：node test/ui-build-test.mjs
  */
@@ -22,15 +25,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resolveUiDir, resolveHostDir, findLegacyUi } from '../tools/profile-paths.mjs';
 
-const profilesDir = path.join(os.homedir(), '.dsh', 'profiles');
-// 两个位置都可用环境变量覆盖（2026-09-18 标准包化）：
-// 门 2/门 3 把自测指向"刚装进去的那份包"（标准形态下 pkgDir = <profile>/node_modules/dsh-attention-health）。
-// 默认值仍是本机现役的旧形态部署位置。
-const pkgDir =
-  process.env.DSH_ATTENTION_HEALTH_UI_DIR ?? path.join(profilesDir, 'node_modules', 'attention-health-ui');
-const staleDir = path.join(profilesDir, 'web', 'attention-health-ui');
+const projectRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+// 被测 UI 包 = 标准安装（或环境变量指定）；都没有就退回本仓库根（仓库根 == npm 包根）。
+const pkgDir = resolveUiDir() ?? projectRoot;
+const staleDirs = [
+  findLegacyUi(),
+  path.join(os.homedir(), '.dsh', 'profiles', 'web', 'attention-health-ui'),
+].filter((d) => d && fs.existsSync(d));
 
 let pass = 0;
 let fail = 0;
@@ -45,9 +49,9 @@ const check = (label, ok, detail = '') => {
 };
 
 console.log('════════ 0. 被测位置 ════════');
-console.log(`  运行时位置：${pkgDir}`);
-if (fs.existsSync(staleDir)) {
-  console.log(`  ⚠️ 发现历史残留副本（运行时不读取）：${staleDir}`);
+console.log(`  被测 UI 包：${pkgDir}`);
+if (staleDirs.length) {
+  console.log(`  ⚠️ 发现历史残留副本（运行时不读取，已跳过）：${staleDirs.join(' 、 ')}`);
 }
 
 console.log('\n════════ 1. package.json 结构（启动期校验点） ════════');
@@ -397,7 +401,7 @@ check('现场条目带轮次', samplesText.includes('第 12 轮'));
 check('轮次未知时如实显示（host 约定 turn = 0）', samplesText.includes('轮次未知'));
 check(
   '现场条目带类型标签',
-  samplesText.includes('思考异常') && samplesText.includes('已中止空转'),
+  samplesText.includes('思考异常') && samplesText.includes('已中止疑似空转'),
 );
 check('收起态显示原文预览', samplesText.includes('做。'));
 
@@ -870,7 +874,7 @@ check(
 // 所以这里直接查那张表。2026-09-18 L 节就清理了它和一处**过期表述**。
 // host 半的位置同样走 `DSH_ATTENTION_HEALTH_DIR` 覆盖（标准包形态下 = <包>/lib）。
 const hostHandoffPath = path.join(
-  process.env.DSH_ATTENTION_HEALTH_DIR ?? path.join(profilesDir, 'web', 'attention-health'),
+  resolveHostDir() ?? path.join(projectRoot, 'lib'),
   'handoff.js',
 );
 const hostHandoff = await import(pathToFileURL(hostHandoffPath).href);

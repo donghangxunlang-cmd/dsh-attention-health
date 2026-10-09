@@ -4,7 +4,7 @@
 #   1. 语法检查（lib / CLI / 测试 / 工具）—— 拦住合并前就能发现的一类低级错误；
 #   2. 身份扫描器自检 + 全仓库身份闸门 —— 公开仓库必须 0 命中（隐私纪律的自动化那一道）；
 #   3. 五套自测 —— 用 tools/make-test-fixture.mjs 造合成会话语料（CI 没有真实日志），
-#      期望 715 项 0 失败；本机真实语料回归由 test-all.ps1 负责（719 项）；
+#      失败数必须为 0，数量与跳过原因以实际输出为准；真实语料回归由 test-all.ps1 负责；
 #   4. dsh-vet 对 **npm 包形态**审计 —— 期望 A 级、0 critical / 0 high / 0 medium。
 #
 # 注意：测试只读 $DSH_HOME，写盘一律走 mkdtemp 临时目录（见 AGENTS.md §4 写路径纪律）。
@@ -53,7 +53,7 @@ jobs:
       - name: 生成合成会话语料
         run: node tools/make-test-fixture.mjs "$RUNNER_TEMP/ah-home"
 
-      - name: 五套自测（合成语料，期望 715 项）
+      - name: 五套自测（合成语料）
         env:
           DSH_HOME: ${{ runner.temp }}/ah-home
           DSH_ATTENTION_HEALTH_DIR: ${{ github.workspace }}/lib
@@ -63,6 +63,9 @@ jobs:
             echo "──────── $t"
             node "test/$t.mjs"
           done
+
+      - name: 一分钟演示（合成数据、实际守卫与交接路由）
+        run: node tools/demo.mjs
 
       - name: dsh-vet 审计（npm 包形态，期望 A 级）
         run: |

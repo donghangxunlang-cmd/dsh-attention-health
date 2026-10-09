@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { listSessions, readSession } from '../lib/session-log.mjs';
 import { extractHandoff } from '../lib/extract.mjs';
+import { resolveHostDir } from '../tools/profile-paths.mjs';
 
 let pass = 0;
 let fail = 0;
@@ -37,11 +38,9 @@ const check = (label, ok, detail = '') => {
 
 const projectRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const projectFile = path.join(projectRoot, 'lib', 'handoff.js');
-// 部署目录可用环境变量覆盖（2026-09-18 标准包化）：临时 profile 实验靠它指向刚装进去的那份。
-const deployedDir =
-  process.env.DSH_ATTENTION_HEALTH_DIR ??
-  path.join(os.homedir(), '.dsh', 'profiles', 'web', 'attention-health');
-const deployedFile = path.join(deployedDir, 'handoff.js');
+// 被测目录：环境变量 → 自动探测到的标准安装（profile 名不写死）→ 本仓库源码（回退）。
+const deployedDir = resolveHostDir();
+const deployedFile = deployedDir ? path.join(deployedDir, 'handoff.js') : projectFile;
 
 const target = fs.existsSync(deployedFile) ? deployedFile : projectFile;
 console.log(
@@ -1548,6 +1547,23 @@ const lineShort = '这一行重复了。\n这一行重复了。\n这一行重复
 const paraShort =
   '上下文已经很大了，建议先做一次机械交接再继续干活吧。\n\n中间夹一句别的话。\n\n上下文已经很大了，建议先做一次机械交接再继续干活吧。';
 check('N-5：短文本围栏不闭合也判退化（旧版被 80 字门槛挡掉）', replyDegradeReasons(fenceShort).includes('fence'));
+
+// ── BC（2026-10-01 审查侧）：围栏判据必须按**行结构**判定 ────────────────────────
+// 事故：正文里提一句"三个反引号"（并未在行首开围栏）被旧实现判成"围栏不闭合"，
+// 实测那轮误扣 6 分、界面多显示"输出异常 1 条"。下面三条钉住修复后的口径。
+check(
+  'BC：正文提及三反引号不得判围栏不闭合（旧实现误报）',
+  !replyDegradeReasons('这里用 ``` 表示代码块，它只是正文里的一个标记。').includes('fence'),
+);
+check(
+  'BC：四反引号围栏内部出现三反引号不得被当成已闭合',
+  !replyDegradeReasons('````md\n```\nconst a = 1;\n````').includes('fence') &&
+    replyDegradeReasons('````md\n```\nconst a = 1;').includes('fence'),
+);
+check(
+  'BC：波浪线围栏未闭合也要判（旧实现完全没识别）',
+  replyDegradeReasons('~~~js\nconst a = 1;').includes('fence'),
+);
 check('N-5：短文本符号堆砌也判退化', replyDegradeReasons(symShort).includes('symbolRun'));
 check('N-5：短文本同行复读也判退化', replyDegradeReasons(lineShort).includes('lineRepeat'));
 check('N-5：中文短段落重复也判退化（阈值 60 → 25 字）', replyDegradeReasons(paraShort).includes('paraRepeat'));

@@ -1,6 +1,6 @@
 {
   "name": "dsh-attention-health",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "DeepSeek Harness 长会话守卫：检测思考循环和输出复读，按本地日志建议何时交接，并生成无需额外模型调用的交接文档",
   "type": "module",
   "license": "MIT",

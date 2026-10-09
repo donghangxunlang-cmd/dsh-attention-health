@@ -5,9 +5,15 @@
 # 自测仍然每天要跑，这个脚本只管一件事：**把五套自测指向正确的那一份代码**。
 #
 # 它自己判断被测目标（并把结果显示出来 —— "测的是哪一份"比"全绿"更重要）：
-#   1. `profiles\web\node_modules\dsh-attention-health`（标准安装，**当前线上形态**）
-#   2. 否则回落到旧形态部署目录 `profiles\web\attention-health`（过渡/回退期）
-#   3. 都找不到 → 用测试自带的源码回退路径（会打印警告）
+#   1. **标准插件包** `<DSH_HOME>\profiles\<profile>\node_modules\dsh-attention-health`（当前线上形态）；
+#   2. 否则回落到旧形态部署目录 `<profile>\attention-health`（过渡/回退期）；
+#   3. 都找不到 → 用测试自带的源码回退路径（会打印警告）。
+#
+# ⚠️ **profile 名不再写死**：2026-09-30 本机从 `web` 换成 `desktop` profile 之后，
+# 写死的 `profiles\web` 让这里探测失败、五套自测回退到一份**旧的残留副本**，
+# 于是"测错了对象"却报成失败（2026-10-01 实测 3 套失败）。探测现在由
+# `tools\profile-paths.mjs` 统一负责（依据 profile 的 package.json 声明，不依赖目录名），
+# 本脚本只消费它的结果。可用 `$env:DSH_PROFILE` 指定 profile。
 #
 # 用法：
 #   .\test-all.ps1
@@ -72,17 +78,30 @@ function Bad  ([string]$m) { Write-Host "   [FAIL] $m" -ForegroundColor Red; $sc
 function Say  ([string]$m) { Write-Host $m }
 
 if (-not $Dir) {
-    $std = Join-Path $dshHome 'profiles\web\node_modules\dsh-attention-health'
-    $legacy = Join-Path $dshHome 'profiles\web\attention-health'
-    if (Test-Path -LiteralPath (Join-Path $std 'lib\index.js')) {
-        $Dir = Join-Path $std 'lib'
-        $UiDir = $std
-        Say '被测形态：标准插件包（profiles\web\node_modules\dsh-attention-health）'
-    } elseif (Test-Path -LiteralPath (Join-Path $legacy 'index.js')) {
-        Say '被测形态：旧形态部署目录（profiles\web\attention-health）'
-        Say '  ⚠️ 这是过渡/回退形态；门 3 之后线上应是标准包。'
+    # 被测目标由 `tools\profile-paths.mjs` 统一探测（profile 名不写死，见文件头）。
+    $probe = $null
+    $probeScript = Join-Path $root 'tools\profile-paths.mjs'
+    if (Test-Path -LiteralPath $probeScript) {
+        $saved = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $raw = & $nodeExe $probeScript --json 2>$null | Out-String
+            if ($LASTEXITCODE -eq 0 -and $raw.Trim()) { $probe = $raw | ConvertFrom-Json }
+        } catch {
+            $probe = $null
+        } finally {
+            $ErrorActionPreference = $saved
+        }
+    }
+    if ($probe -and $probe.hostDir) {
+        Say ("被测形态：{0}" -f $probe.description)
+        $Dir = $probe.hostDir
+        if ($probe.uiDir) { $UiDir = $probe.uiDir }
     } else {
-        Say '⚠️ 两种部署位置都不存在 —— 测试会回退到源码路径（结果不能代表线上）。'
+        Say '⚠️ 未发现标准安装或旧形态部署 —— 测试会回退到源码路径（结果不能代表线上）。'
+        if (-not (Test-Path -LiteralPath $probeScript)) {
+            Say ("   （探测脚本缺失：{0}）" -f $probeScript)
+        }
     }
 }
 

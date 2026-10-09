@@ -1,16 +1,22 @@
 ﻿# install-package.ps1 —— 把**当前源码**打成标准插件包并装进 profile（2026-09-20 门 3 之后新增）
 #
-# 为什么需要它：门 3 之后线上形态是**标准插件包**（`profiles\web\node_modules\dsh-attention-health`），
+# 为什么需要它：门 3 之后线上形态是**标准插件包**（`profiles\<profile>\node_modules\dsh-attention-health`），
 # 它由 pnpm 从 tgz 安装 —— 也就是说：
 #
 #   ⚠️ **改 `lib/` 里的源码不会自动影响线上**（旧形态时 `deploy.ps1` 一对拷就同步了）。
 #      必须「重新打包 → 重新安装 → 重启（host 改动）」，本脚本把前两步合成一条命令。
 #
 # 用法：
-#   .\install-package.ps1                     # 打包 + 装进 profiles\web（线上 profile）
+#   .\install-package.ps1                     # 打包 + 装进**探测到的** profile（见下）
 #   .\install-package.ps1 -Profile ah-exp     # 装进别的 profile（实验用）
 #   .\install-package.ps1 -NoInstall          # 只打包，不动任何 profile
 #   .\install-package.ps1 -PkgDir <目录>      # 指定 tgz 落地目录（默认见下）
+#
+# ⚠️ **profile 名不写死**（2026-10-01 修）：以前默认 `web`，而 2026-09-30 本机已改用
+# `desktop` profile —— 继续默认 `web` 会打到不存在的 profile、或者**装进另一个 profile 而
+# "线上"其实没更新**。选择顺序：`-Profile` → `$env:DSH_PROFILE` → 自动探测
+# （`tools\profile-paths.mjs`：找已声明依赖本插件的 profile）；都判定不了就**报错退出**，
+# 要你显式指定 —— 宁可让你多打一个参数，也不静默装错地方。
 #
 # 落地位置（按优先级）：`-PkgDir` 参数 → `$env:DSH_ATTENTION_HEALTH_PKG_DIR` →
 # `<DSH_HOME>\attention-health-pkg`。⚠️ **必须是稳定目录** —— profile 的 package.json 里
@@ -23,7 +29,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$Profile = 'web',
+    [string]$Profile,
     [string]$PkgDir,
     [switch]$NoInstall,
     [switch]$SkipPack
@@ -112,6 +118,15 @@ function Resolve-DshBin {
     }
     $fromParent = Get-DshBinFromAncestors
     if ($fromParent) { return $fromParent }
+    # 桌面版（Electron，2026-09-30 起本机形态）的专门说明：它的 dsh 实现打包在 `app.asar` 内，
+    # **文件系统上没有可直接执行的 bin.js**，上面几档因此全都会落空。与其抛一句
+    # "把 dsh 加入 PATH"（在桌面版上做不到），不如说清楚该走哪条路。
+    # ⚠️ 本脚本**不替用户猜安装路径**：`dsh plugin add` 除了 pnpm 安装还会维护
+    # profile 的 `dsh.profile.bundles` 层栈，手工仿造等于绕开官方入口（见 AGENTS §1）。
+    $desktop = @(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue)
+    if ($desktop.Count -gt 0) {
+        throw ('找不到 dsh 的 bin.js —— 本机是**桌面版 DSH**（DeepSeek Harness.exe）：CLI 打包在 app.asar 内，文件系统上没有可直接执行的入口。请在桌面版的插件管理界面安装本插件，或把 $env:DSH_BIN 指向一份可用的 dsh 入口（bin.js 全路径）后重试。')
+    }
     throw '找不到 dsh 的 bin.js（可设 $env:DSH_BIN 指定，或把 dsh 加入 PATH）'
 }
 $nodeExe = Resolve-NodeExe
@@ -128,6 +143,35 @@ if (Test-Path -LiteralPath (Join-Path $nodeDir 'pnpm.cmd')) {
 }
 $pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
 if (-not $pnpm) { throw '找不到 pnpm（可设 $env:DSH_NODE_DIR 指向含 pnpm.cmd 的目录，或先 npm i -g pnpm@11）' }
+
+# ── profile 选择（`-Profile` → `$env:DSH_PROFILE` → 自动探测；判定不了就报错）──────
+# 探测统一走 `tools\profile-paths.mjs`（与 `test-all.ps1` 同一来源，避免两处漂移）。
+$probe = $null
+if (-not $Profile) {
+    $probeScript = Join-Path $root 'tools\profile-paths.mjs'
+    if (Test-Path -LiteralPath $probeScript) {
+        $saved = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $raw = & $nodeExe $probeScript --json 2>$null | Out-String
+            if ($LASTEXITCODE -eq 0 -and $raw.Trim()) { $probe = $raw | ConvertFrom-Json }
+        } catch {
+            $probe = $null
+        } finally {
+            $ErrorActionPreference = $saved
+        }
+    }
+    if ($probe -and $probe.standard -and $probe.standard.profile) {
+        $Profile = $probe.standard.profile
+        Write-Host ("   profile 自动探测：{0}" -f $Profile) -ForegroundColor DarkGray
+    } elseif ($env:DSH_PROFILE) {
+        $Profile = $env:DSH_PROFILE
+        Write-Host ("   profile 取自 DSH_PROFILE：{0}" -f $Profile) -ForegroundColor DarkGray
+    } else {
+        $known = if ($probe) { ($probe.profiles -join '、') } else { '（探测脚本没跑起来）' }
+        throw ("判定不了要装进哪个 profile —— 现有：{0}。请显式指定：.\install-package.ps1 -Profile <名字>" -f $known)
+    }
+}
 
 $pkgOut = if ($PkgDir) { $PkgDir }
 elseif ($env:DSH_ATTENTION_HEALTH_PKG_DIR) { $env:DSH_ATTENTION_HEALTH_PKG_DIR }

@@ -20,13 +20,17 @@
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resolveHostDir } from '../tools/profile-paths.mjs';
 
 // 项目根由本文件位置推出（不再硬编码本机路径），换台机器也能跑。
 const SRC = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-// 部署目录可用环境变量覆盖（2026-09-18 标准包化）：临时 profile 实验靠它指向刚装进去的那份。
-const DEPLOYED =
-  process.env.DSH_ATTENTION_HEALTH_DIR ??
-  path.join(os.homedir(), '.dsh', 'profiles', 'web', 'attention-health');
+// 被测对象 = **已部署副本**（真正在跑的那份）；环境变量优先，其次自动探测标准安装
+// （profile 名不写死 —— 2026-09-30 本机从 `web` 换成 `desktop` 后，写死的路径让本套
+//  直接 import 失败，报"未解析到统计行"）。都找不到才回退源码，并明确标注不代表线上。
+const DEPLOYED = resolveHostDir() ?? path.join(SRC, 'lib');
+if (DEPLOYED === path.join(SRC, 'lib')) {
+  console.log('  ⚠️ 未发现安装副本 —— 本套回退到源码，结果不能代表线上。');
+}
 
 const sessionLog = await import(pathToFileURL(path.join(SRC, 'lib', 'session-log.mjs')).href);
 const detect = await import(pathToFileURL(path.join(SRC, 'lib', 'detect.mjs')).href);

@@ -14,8 +14,8 @@
 
 ## 1. 仓库布局
 
-仓库根 = npm 包根。源码全在 `lib/`；`test/` `tools/` `docs/` `work/` 只进公开仓库，
-不进 npm 包（`files` 白名单）。
+仓库根 = npm 包根。源码全在 `lib/`；`test/`、`tools/`、`docs/` 进入脱敏公开仓库，
+不进 npm 包（`files` 白名单）；`work/` 只保留在开发仓库，不公开。
 
 开发仓库与公开仓库是**两份东西**：开发仓库是完整档案（含真实会话 ID 的实测证据注释、
 `DEPLOYMENT-NOTES-20260915.md`、`HANDOFF.md`、`work/`）；公开仓库是 `tools/make-release.mjs`
@@ -26,7 +26,8 @@
 ### 有真实语料（维护者本机，首选）
 
 ```powershell
-.\test-all.ps1        # 自动指向线上标准安装；以脚本汇总为准，期望 0 失败
+.\test-all.ps1 -Dir (Join-Path $PWD "lib") -UiDir $PWD  # 显式测试当前源码
+.\test-all.ps1        # 自动指向本机安装版；以脚本汇总为准，期望 0 失败
 ```
 
 五套测试各自也以 `test/*.mjs -Dir` 或环境变量覆盖被测目录：
@@ -49,6 +50,16 @@ for t in guard-test plugin-test ui-build-test handoff-test crosscheck-test; do n
 第二条会话是**故意**做的"最新但空"形态：审查清单 C1 的假失败根因就是
 "渲染样本取最新会话"，而最新会话可能是个空会话 —— 夹具把该形态固化，
 谁把样本选择改回"最新"，渲染断言当场变红。
+
+### 合成演示回归
+
+```bash
+node tools/demo.mjs
+```
+
+这条命令对实际 host 注册的守卫、投影、`record=0` 路由和两种留存字段作断言，
+失败即返回非零退出码；CI 在五套测试后执行。宿主取消动作是模拟的，不能替代真实安装验收。
+演示不使用真实会话，详见 [演示与首次验收](try-it.md)。
 
 ## 3. 改判据的纪律
 
@@ -98,22 +109,38 @@ cd <脱敏产物目录>
 
 ```powershell
 .\install-package.ps1     # 打包（tgz 落在 -PkgDir / $env:DSH_ATTENTION_HEALTH_PKG_DIR；
-                          #   两者都没给时是 <DSH_HOME>\attention-health-pkg）+ 装进 profile
-.\restart-attention-health.ps1   # 改 host 半后重启 + 14 项运行时验证
+                          #   两者都没给时是 <DSH_HOME>\attention-health-pkg）+ 装进**探测到的** profile
+.\restart-attention-health.ps1   # 改 host 半后重启 + 运行时验证（**web 形态专用**，见下）
 ```
 
-- 线上形态是**标准插件包**（`$DSH_HOME\profiles\web\node_modules\dsh-attention-health`），
+- **profile 名不写死**：探测由 `tools/profile-paths.mjs` 统一负责（依据 profile 的
+  `package.json` 是否声明本插件），`web` / `desktop` / 任意名字都能命中；
+  多个 profile 都装了时用 `$env:DSH_PROFILE` 指定。**装错 profile 等于"线上没更新"**，
+  所以判定不了时脚本会直接报错要你显式给 `-Profile`，而不是猜一个。
+- 线上形态是**标准插件包**（`$DSH_HOME\profiles\<profile>\node_modules\dsh-attention-health`），
   **改 `lib/` 不会自动同步** —— 必须重新 install；
 - 只改 `lib/client.js` 不需要重启，刷新页面即可；
 - `deploy.ps1` 已退役为回退工具（检测到标准安装会拒绝运行），回退流程见 `AGENTS.md` §1；
 - tgz 目录是**稳定目录**（profile 里记的是这个路径），别放进会被清理的临时目录。
 
+### 5.1 DSH 桌面版（Electron）用户请注意
+
+`install-package.ps1` 与 `restart-attention-health.ps1` 都是为 **`dsh` CLI 形态**写的：
+
+- 桌面版把 CLI 打包在 `app.asar` 内，**文件系统上没有可直接执行的 `bin.js`** ——
+  两个脚本的入口探测都会落空。前者会明确告诉你这一点（不再含糊地让你"把 dsh 加入 PATH"）；
+  后者检测到 `DeepSeek Harness.exe` 就**拒绝运行并退出码 3**（它按 `node.exe + dsh\lib\bin`
+  找进程、按端口 3080 判活，在桌面版下会把在跑的 DSH 判成没跑、再拉起一个 web 形态实例）。
+- 桌面版请用**它的插件管理界面**安装本插件；host 半改动靠**重启桌面应用**生效，
+  client 半改动刷新页面即可。
+- `.\test-all.ps1` **不依赖**上面两个脚本，桌面版下照常可用（自动探测 profile）。
+
 ## 6. 常见坑（速查）
 
 | 现象 | 原因 | 处置 |
 | --- | --- | --- |
-| 测试测的不是线上那份 | 直接 `node test/xxx.mjs`，环境变量未设 | 用 `.\test-all.ps1` 或显式设 `DSH_ATTENTION_HEALTH_DIR` |
-| `ERR_PNPM_ADDING_TO_ROOT` | `add` 少了 `-w` | `dsh plugin --profile web add -w <tgz>` |
+| 测试测的不是线上那份 | profile/安装位置写死过（如 `profiles/web`），profile 改名后静默测到旧副本 | 用 `.\test-all.ps1`（现在自动探测并**打印被测形态**）；或显式设 `DSH_ATTENTION_HEALTH_DIR` |
+| `ERR_PNPM_ADDING_TO_ROOT` | `add` 少了 `-w` | `dsh plugin --profile <名字> add -w <tgz>` |
 | `ERR_PNPM_VIRTUAL_STORE_DIR_MAX_LENGTH_DIFF` | 用错 pnpm 主版本 | 用与 profile 一致的 pnpm 11 |
 | 组合 URL 里漏检 client bundle | 正则只认 `/pkg/client.js` | 组合 URL 是 `/plugins/??a/client.js&b/client.js`，第二条前是 `&` |
 | 新克隆上两套测试崩 | `work/` 不在版本控制里（已修：测试自建） | 见 `tools/make-test-fixture.mjs` |

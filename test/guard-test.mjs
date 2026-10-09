@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resolveHostDir } from '../tools/profile-paths.mjs';
 
 let pass = 0;
 let fail = 0;
@@ -25,11 +26,9 @@ const check = (label, ok, detail = '') => {
 
 const projectRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const projectFile = path.join(projectRoot, 'lib', 'guard.js');
-// 部署目录可用环境变量覆盖（2026-09-18 标准包化）：临时 profile 实验靠它指向刚装进去的那份。
-const deployedDir =
-  process.env.DSH_ATTENTION_HEALTH_DIR ??
-  path.join(os.homedir(), '.dsh', 'profiles', 'web', 'attention-health');
-const deployedFile = path.join(deployedDir, 'guard.js');
+// 被测目录：环境变量 → 自动探测到的标准安装（profile 名不写死）→ 本仓库源码（回退）。
+const deployedDir = resolveHostDir();
+const deployedFile = deployedDir ? path.join(deployedDir, 'guard.js') : projectFile;
 const target = fs.existsSync(deployedFile) ? deployedFile : projectFile;
 console.log(`  被测文件：${target}${target === projectFile ? '（部署副本不存在，回退源码）' : '（部署副本）'}`);
 
@@ -97,8 +96,9 @@ console.log('\n════════ 2. 正例：越界重复必须被抓到 
 }
 {
   const g = createLoopGuard();
-  const hit = feed(g, Array.from({ length: 20 }, () => 'aaaa'));
-  check('行内片段连续重复（无换行）→ 命中 repeat-inline', hit !== null && hit.kind === 'repeat-inline', JSON.stringify(hit));
+  // AX.5 档位 3：要 50 次 × 4 字符 = 200 字才越线（旧写法 `'aaaa' ×20` 只有 80 字，已不中止）。
+  const hit = feed(g, Array.from({ length: 50 }, () => 'abcd'));
+  check('行内片段连续重复（无换行，50 次 / 200 字）→ 命中 repeat-inline', hit !== null && hit.kind === 'repeat-inline', JSON.stringify(hit));
 }
 {
   // ── 2026-09-18 H.1 真实现场：**短行交替复读** ──
@@ -179,21 +179,278 @@ console.log('\n════════ 2b. Q 节（2026-09-18）：行内复读
     check(`Q 反例｜${label} 不得触发（纯符号不是空转）`, g.push(text) === null, JSON.stringify(g.push(text)));
   }
 }
+
+// ── AX 节（2026-10-01）：结构重复（命令参数 / 序号 / 数值列）也不得触发 ──────────
+// 起因是本机**首条真实守卫记录**（也是唯一一条）：模型正常地写"连按 N 次同一按键清空输入框"
+// 的命令，同一个按键码被连续写出十几次 → 行内周期判据把命令参数当成复读，**在流式生成中途
+// 中止了那一轮**。审查侧裁决（AX.5 档位 0）：纯数字参数、序号、表格分隔符属于正常结构重复。
+// 合成复现（不含任何真实原文）：work/guard-repro-inline-cmd.mjs。
+// ⚠️ 这里只用**合成**命令与数值，真实原文不进测试夹具（审查侧 AX.2 的要求）。
 {
-  const zh = '这是一行会被重复的内容'.repeat(10);
+  const structural = [
+    ['& $adb shell "input keyevent ' + '67 '.repeat(20), 'AX 反例｜命令参数：同一按键码 ×20（真实误停形态）'],
+    ['1 2 3 '.repeat(20), 'AX 反例｜纯数字序列 ×20'],
+    ['| --- '.repeat(20), 'AX 反例｜表格分隔列 ×20'],
+  ];
+  for (const [text, label] of structural) {
+    const g = createLoopGuard();
+    const hit = g.push(text);
+    check(`${label} 不得触发（结构重复不是思考空转）`, hit === null, JSON.stringify(hit));
+  }
+
+  // BG：桌面旧版把 Windows 启动项的十六进制字节列表当成空转。
+  // 40 个字节超过新版 16 次 / 160 字门槛；测试必须证明是结构识别在起作用。
+  for (const [label, bytes] of [
+    ['小写逗号', '0x00,'.repeat(40)],
+    ['大写加空格', '0XFF, '.repeat(40)],
+    ['无分隔符', '0x00'.repeat(50)],
+  ]) {
+    const input = '[byte[]](0x03,' + bytes;
+    for (const chunk of [0, 1, 5, 64]) {
+      const g = createLoopGuard();
+      let hit = null;
+      if (chunk === 0) hit = g.push(input);
+      else for (let i = 0; i < input.length && !hit; i += chunk) hit = g.push(input.slice(i, i + chunk));
+      check(`BG 反例｜十六进制字节 ${label}（${chunk ? `每 ${chunk} 字分片` : '整段'}）不得中止`, hit === null, JSON.stringify(hit));
+    }
+  }
+
+  // 边界（防"放宽过头"）：单元**含字母或汉字**时仍然要抓 —— 门槛只排除"无字母"的单元。
+  // ⚠️ AX.5 档位 3 要求**两个条件同时满足**：重复 ≥16 次**且**累计 ≥160 字。
+  // 60 次 × 3 字符 = 180 字 → 越线（同时越过 `inlineMinPendingChars`(64) 的检查前置门槛）。
+  const mixed = 'x1 '.repeat(60);
+  const gm = createLoopGuard();
+  const hitMixed = gm.push(mixed);
+  check(
+    'AX 正例｜字母+数字混合单元 ×60（180 字）仍必须触发（放行只针对无字母单元）',
+    hitMixed !== null && hitMixed.kind === 'repeat-inline',
+    JSON.stringify(hitMixed),
+  );
+
+  // 两条**下限**都要单独钉住 —— 否则"提高门槛"会悄悄变成"关掉判据"：
+  const shortEnough = 'x1 '.repeat(16); // 16 次，但只有 48 字 < 160
+  const gShort = createLoopGuard();
+  const hitShort = gShort.push(shortEnough);
+  check(
+    'AX 档位 3｜16 次但累计仅 48 字（<160）→ 不得中止',
+    hitShort === null,
+    JSON.stringify(hitShort),
+  );
+  const fewButLong = 'abcdefghijkl '.repeat(15); // 累计 195 字 ≥160，但只有 15 次 < 16
+  const gFew = createLoopGuard();
+  const hitFew = gFew.push(fewButLong);
+  check(
+    'AX 档位 3｜累计 195 字但只有 15 次（<16）→ 不得中止',
+    hitFew === null,
+    JSON.stringify(hitFew),
+  );
+}
+// ── AY.2（2026-10-01 审查侧复核）：**流式分片喂入必须与整段喂入同结果** ──────────
+// 缺陷形态：探测窗扩到 `inlineMaxPeriod × 16`(640) 字，而流式喂入时未闭合行仍按
+// `inlineMaxPeriod × streakLimit`(320) 字裁剪 → 长周期在凑齐 16 次之前被丢掉：
+// 同一段内容**整段喂命中、每 5 字分片喂漏检**（DSH 实际就是逐帧喂）。
+// 这里覆盖周期上/下界（2 / 21 / 40 字，含恰好在 `inlineMaxPeriod` 边界的 40）与分片粒度 1 / 5 / 64。
+{
+  // 用互不相同的汉字构造单元（保证最短周期恰好等于 size，且能过"必须含字母或汉字"的门槛）
+  const unitOf = (size) => Array.from({ length: size }, (_, i) => String.fromCharCode(0x4e00 + i)).join('');
+  for (const size of [2, 21, 40]) {
+    const unit = unitOf(size);
+    const reps = Math.max(16, Math.ceil(160 / size) + 1); // 同时满足 ≥16 次与 ≥160 字
+    const text = unit.repeat(reps);
+
+    const whole = createLoopGuard().push(text);
+    check(
+      `AY.2｜整段喂入命中（单元 ${size} 字 × ${reps} 次）`,
+      whole !== null && whole.kind === 'repeat-inline',
+      JSON.stringify(whole),
+    );
+
+    for (const chunk of [1, 5, 64]) {
+      const g = createLoopGuard();
+      let hit = null;
+      for (let i = 0; i < text.length && !hit; i += chunk) hit = g.push(text.slice(i, i + chunk));
+      check(
+        `AY.2｜每 ${chunk} 字分片喂入必须同样命中（单元 ${size} 字，逐帧形态）`,
+        hit !== null && hit.kind === 'repeat-inline',
+        JSON.stringify(hit),
+      );
+    }
+  }
+
+  // 档位 0 不回退：纯数字命令参数**分片**喂入也必须放行（这是误停的原始形态）
+  const cmd = '& $adb shell "input keyevent ' + '67 '.repeat(40);
+  const gc = createLoopGuard();
+  let hitCmd = null;
+  for (let i = 0; i < cmd.length && !hitCmd; i += 5) hitCmd = gc.push(cmd.slice(i, i + 5));
+  check('AY.2｜纯数字命令参数分片喂入仍须放行（档位 0 不回退）', hitCmd === null, JSON.stringify(hitCmd));
+}
+// ── AZ.2 / BA.4（2026-10-01 审查侧）：**围栏行结构**保护 + 已知未结案项 ──────────
+// 反例形态：正常 JS 字符串字面量里把一个英文词加空格重复 40 次（单元 6 字），按 5 字分片喂入时
+// 会在第 27 次命中 repeat-inline。围栏**内**的这类重复属于代码内容 → 豁免；
+// 而**没有围栏**的同类内容目前仍会中止 —— BA.2 明确：那是**尚未结案的误停**，不是正确行为，
+// 所以下面第 5 条刻意写成"现状（未结案）"，等保守规则落地后必须翻成"不得中止"。
+{
+  const rep = 'hello '.repeat(40);
+
+  // 1) 标准三反引号围栏内 → 不得中止（分片喂入，含跨分片开闭）
+  const fenced = '```js\nconst s = "' + rep + '";\n```\n';
+  {
+    const g = createLoopGuard();
+    let hit = null;
+    for (let i = 0; i < fenced.length && !hit; i += 5) hit = g.push(fenced.slice(i, i + 5));
+    check('BA.4｜``` 围栏内字符串重复（分片喂入）不得中止', hit === null, JSON.stringify(hit));
+  }
+
+  // 2) 四个反引号开启、内部出现三反引号 → 首版实现误判为"已关闭"（BA.3 误关），必须仍豁免
+  const fourFence = '````md\n```\n' + rep + '\n````\n';
+  {
+    const g = createLoopGuard();
+    let hit = null;
+    for (let i = 0; i < fourFence.length && !hit; i += 5) hit = g.push(fourFence.slice(i, i + 5));
+    check('BA.4｜四反引号围栏（内部含三反引号）不得中止（BA.3 误关已修）', hit === null, JSON.stringify(hit));
+  }
+
+  // 3) 波浪线围栏（~~~）同样要识别 → 首版完全没识别（BA.3 漏识）
+  const tildeFence = '~~~js\nconst s = "' + rep + '";\n~~~\n';
+  {
+    const g = createLoopGuard();
+    let hit = null;
+    for (let i = 0; i < tildeFence.length && !hit; i += 5) hit = g.push(tildeFence.slice(i, i + 5));
+    check('BA.4｜~~~ 围栏内字符串重复不得中止（BA.3 漏识已修）', hit === null, JSON.stringify(hit));
+  }
+
+  // 4) 反面：**正文里提到**"三个反引号"不算开围栏 → 其后的自然语言复读必须照常中止（BA.3 误开）
+  const proseMentionsFence =
+    '这里用 ' + '```' + ' 表示代码块。\n' + '这是一行会被重复的内容'.repeat(20) + '\n';
+  {
+    const g = createLoopGuard();
+    let hit = null;
+    for (let i = 0; i < proseMentionsFence.length && !hit; i += 5) hit = g.push(proseMentionsFence.slice(i, i + 5));
+    check(
+      'BA.4｜正文提到反引号不得误开围栏（其后自然语言复读仍须中止）',
+      hit !== null && hit.kind === 'repeat-inline',
+      JSON.stringify(hit),
+    );
+  }
+
+  // 5) BA.2 **选项 A**（BE 节复核后收紧为"代码字符串区间"）：区间内的重复静默豁免；
+  //    区间外（含字符串已闭合、普通英文叙述里出现 return/function 这类词）仍必须中止。
+  //    未闭合行与带尾随换行的完整行分别验证，防止分片方式改变判定。
+  const repInline = 'hello '.repeat(40);
+  {
+    // 5a) **未闭合**字符串字面量里的重复 → 豁免（这才是 AZ 的原始反例形态）
+    const unclosed = 'const s = "' + repInline;
+    const whole = createLoopGuard().push(unclosed);
+    check('BA.2-A｜未闭合代码字符串整段喂入（无尾随换行）不得中止', whole === null, JSON.stringify(whole));
+    for (const chunk of [1, 5, 64]) {
+      const g = createLoopGuard();
+      let hit = null;
+      for (let i = 0; i < unclosed.length && !hit; i += chunk) hit = g.push(unclosed.slice(i, i + chunk));
+      check(`BA.2-A｜未闭合代码字符串每 ${chunk} 字分片喂入不得中止`, hit === null, JSON.stringify(hit));
+    }
+  }
+  {
+    // 5b) BE.2 ②：字符串**已闭合**，后面的普通叙述不得继承豁免
+    const afterString = 'const s = "ok"; now I am stuck: ' + repInline;
+    const g = createLoopGuard();
+    let hit = null;
+    for (let i = 0; i < afterString.length && !hit; i += 5) hit = g.push(afterString.slice(i, i + 5));
+    check(
+      'BA.2-A｜代码字符串闭合后的普通叙述复读必须中止（BE.2 ②）',
+      hit !== null && hit.kind === 'repeat-inline',
+      JSON.stringify(hit),
+    );
+  }
+  {
+    // 5c) BE.2 ①：自然语言里的 `return` / `function` **不再是**代码特征
+    for (const [label, text] of [
+      ['return', 'I will return to this. ' + repInline],
+      ['function', 'The function is described here. ' + repInline],
+    ]) {
+      const g = createLoopGuard();
+      let hit = null;
+      for (let i = 0; i < text.length && !hit; i += 5) hit = g.push(text.slice(i, i + 5));
+      check(
+        `BA.2-A｜普通英文叙述里的 "${label}" 不得触发豁免（复读仍须中止）`,
+        hit !== null && hit.kind === 'repeat-inline',
+        JSON.stringify(hit),
+      );
+    }
+  }
+  {
+    // 5d) BE.3：赋值出现在第 300 字之后也要能识别（首版缓冲只收本行最初 300 字）。
+    // ⚠️ 前缀必须**无周期**，否则它自己就先触发 repeat-inline（首版样本用 `'x'.repeat(400)`
+    //    就踩了这个：单元 `xx` 被判成复读，测试失败的原因与赋值识别无关）。
+    const prefix = Array.from({ length: 400 }, (_, i) => String.fromCharCode(0x4e00 + i)).join('');
+    const lateAssign = prefix + ' const s = "' + repInline;
+    const g = createLoopGuard();
+    let hit = null;
+    for (let i = 0; i < lateAssign.length && !hit; i += 64) hit = g.push(lateAssign.slice(i, i + 64));
+    check('BA.2-A｜赋值起始于第 300 字之后仍须识别（BE.3）', hit === null, JSON.stringify(hit));
+  }
+  {
+    // 5e) 状态清理（BD.2 ④）：代码行之后另起一行的自然语言复读必须中止
+    const codeThenProse = 'const s = "' + repInline + '";\n' + '这是一行会被重复的内容'.repeat(20);
+    const g = createLoopGuard();
+    let hit = null;
+    for (let i = 0; i < codeThenProse.length && !hit; i += 5) hit = g.push(codeThenProse.slice(i, i + 5));
+    check(
+      'BA.2-A｜代码行之后换行的自然语言复读必须中止（状态清理）',
+      hit !== null && hit.kind === 'repeat-inline',
+      JSON.stringify(hit),
+    );
+  }
+  {
+    // BE.2 ③：后出现的代码语法不得追溯性地豁免前面的自然语言复读。
+    const lateCode = repInline + ' const s = "later"';
+    for (const chunk of [lateCode.length, 1, 5, 64]) {
+      const g = createLoopGuard();
+      let hit = null;
+      for (let i = 0; i < lateCode.length && !hit; i += chunk) hit = g.push(lateCode.slice(i, i + chunk));
+      check(`BE.2 ③｜后置代码前的正文复读每 ${chunk} 字分片仍须中止`, hit?.kind === 'repeat-inline', JSON.stringify(hit));
+    }
+  }
+  {
+    // BE.3：换行前必须检查行内复读；代码字符串内的重复仍须豁免。
+    for (const [label, input, shouldTrip] of [
+      ['普通正文', repInline + '\n', true],
+      ['未闭合代码字符串', 'const s = "' + repInline + '\n', false],
+    ]) {
+      for (const chunk of [input.length, 1, 5, 64]) {
+        const g = createLoopGuard();
+        let hit = null;
+        for (let i = 0; i < input.length && !hit; i += chunk) hit = g.push(input.slice(i, i + chunk));
+        check(`BE.3｜${label}带尾随换行每 ${chunk} 字分片判定一致`, shouldTrip ? hit?.kind === 'repeat-inline' : hit === null, JSON.stringify(hit));
+      }
+    }
+  }
+  {
+    // BE.3：&& 不是整行豁免标志，后面的自然语言复读仍按原判据检查。
+    const afterCommand = 'echo ready && ' + repInline;
+    for (const chunk of [afterCommand.length, 1, 5, 64]) {
+      const g = createLoopGuard();
+      let hit = null;
+      for (let i = 0; i < afterCommand.length && !hit; i += chunk) hit = g.push(afterCommand.slice(i, i + chunk));
+      check(`BE.3｜&& 后复读每 ${chunk} 字分片仍须中止`, hit?.kind === 'repeat-inline', JSON.stringify(hit));
+    }
+  }
+}
+{
+  // Q 正例（防漏报）：够长够多的自然语言行内复读仍必须中止 —— 取 AX.5 档位 3 门槛之上。
+  const zh = '这是一行会被重复的内容'.repeat(20); // 11 字 × 20 = 220 字
   const g1 = createLoopGuard();
   const hit1 = g1.push(zh);
   check(
-    'Q 正例｜中文句子 ×10 必须触发（旧实现漏报）',
+    'Q 正例｜中文句子 ×20（220 字）必须触发（旧实现漏报）',
     hit1 !== null && hit1.kind === 'repeat-inline',
     JSON.stringify(hit1),
   );
 
-  const en = 'this line repeats itself '.repeat(10);
+  const en = 'this line repeats itself '.repeat(20); // 25 字 × 20 = 500 字
   const g2 = createLoopGuard();
   const hit2 = g2.push(en);
   check(
-    'Q 正例｜英文句子 ×10 必须触发（旧实现漏报）',
+    'Q 正例｜英文句子 ×20（500 字）必须触发（旧实现漏报）',
     hit2 !== null && hit2.kind === 'repeat-inline',
     JSON.stringify(hit2),
   );
@@ -291,9 +548,9 @@ console.log('\n════════ 2d. 评审 P1-4：两个 JSONL 的大小
 
 console.log('\n════════ 2e. Z.5：现场尾部保留量与隐私模式 ════════');
 {
-  // 为什么默认 500：Q-3 的"误杀要能事后复核"全靠尾部原文（实测至今真实命中 0 次、
-  // 该文件为空，隐私面为 0）。为什么还要留一个 0 档：让用户能一键切到
-  // "不落原文、只留指纹"，而不必改代码。
+  // 为什么默认 500：Q-3 的"误杀要能事后复核"全靠尾部原文（设计初期真实命中长期为 0、
+  // 该文件一直为空；2026-10-01 本机已有真实命中，尾部原文成了复核依据）。
+  // 为什么还要留一个 0 档：让用户能一键切到"不留尾部原文、只留指纹"，而不必改代码。
   const logMod = await import(pathToFileURL(path.join(path.dirname(target), 'guard-log.js')).href);
   const prevTail = process.env.DSH_ATTENTION_HEALTH_GUARD_TAIL;
   try {

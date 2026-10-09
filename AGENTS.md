@@ -6,11 +6,23 @@
 
 ## 1. 部署与生效（2026-09-20 门 3 之后：**线上是标准插件包**）
 
+> ⚠️ **2026-10-01 环境变更**：本机 DSH 已换成**桌面版**（Electron `DeepSeek Harness.exe`）+
+> **`desktop` profile**（2026-09-30 起；`profiles\web` 已不存在）。两条后果必须知道：
+> 1. **profile 名不写死** —— 探测统一走 `tools\profile-paths.mjs`（依据 profile 的
+>    `package.json` 是否声明本插件）。写死 `profiles\web` 会让自测静默测到**旧残留副本**
+>    而报假失败（2026-10-01 实测：3 套失败；修好后 723 全绿）；多个 profile 装了用
+>    `DSH_PROFILE` 指定。
+> 2. **桌面版不暴露 `dsh` CLI**（打包在 `app.asar` 内）—— `install-package.ps1` 的入口探测
+>    会落空（已给出明确指引）；`restart-attention-health.ps1` 检测到 `DeepSeek Harness.exe`
+>    会**拒绝运行并退出码 3**（它是 web 形态重启器：按 `node.exe + dsh\lib\bin` 找进程、
+>    按端口 3080 判活，在桌面版下会误判并再拉起一个实例）。桌面版请用**插件管理界面**
+>    安装、重启桌面应用使 host 半生效；`.\test-all.ps1` 不受影响，照常可用。
+
 - **源码只有一个目录**：`lib/` —— host 半（`index.js` / `handoff*.js` / `history.js` /
   `guard.js` / `guard-log.js` / `prices.js` / `jsonl.js`）与浏览器半（`client.js`）都在里面；
   仓库根就是 npm 包根（`package.json` + `cordis.patch.yml`）。
-- **线上形态 = 安装产物**：`$DSH_HOME\profiles\web\node_modules\dsh-attention-health`，
-  由 `dsh plugin --profile web add -w <tgz>` 装进去，层栈记在 profile 的 `dsh.profile.bundles`。
+- **线上形态 = 安装产物**：`$DSH_HOME\profiles\<profile>\node_modules\dsh-attention-health`，
+  由 `dsh plugin --profile <profile> add -w <tgz>` 装进去，层栈记在 profile 的 `dsh.profile.bundles`。
   ⚠️ **改 `lib/` 不会自动同步到线上** —— 旧形态时"跑一次 deploy 就同步"已经失效。
 - 一条命令完成"打包 + 安装"：`.\install-package.ps1`（tgz 落在 `-PkgDir` →
   `$env:DSH_ATTENTION_HEALTH_PKG_DIR` → `<DSH_HOME>\attention-health-pkg` 三者中第一个给出的目录；
@@ -19,14 +31,15 @@
   `DSH_NODE_EXE` / `DSH_NPM_CMD`）—— 脚本里**不许写死本机路径**：公开产物会把这类路径
   脱敏成 `<TOOLS>` 占位符，产物里的脚本当场失效（2026-09-22 实测：产物版 `npm-publish.ps1`
   报"找不到 npm.cmd"）。本机已设好前三个用户级变量。
-- 改完 host 半 → `.\restart-attention-health.ps1`（重启 + 14 项运行时验证）；
-  只改 `client.js` → 刷新页面即可。
-- 自测：`.\test-all.ps1`（**自动指向线上那份标准包**；也可 `-Dir` / `-UiDir` 指到任意一份，
-  例如临时 profile 的安装）。直接 `node test\xxx.mjs` 测的是环境变量未设时的默认位置，容易测错对象。
+- 改完 host 半 → **web 形态**：`.\restart-attention-health.ps1`（重启 + 运行时验证）；
+  **桌面版**：重启桌面应用（脚本会拒绝运行，见上方变更说明）。只改 `client.js` → 刷新页面即可。
+- 自测：`.\test-all.ps1`（**自动探测并打印被测形态**，指向线上那份标准包；也可 `-Dir` / `-UiDir`
+  指到任意一份，例如临时 profile 的安装；`DSH_PROFILE` 可在多 profile 都装了时指定）。
+  五套测试脚本的默认路径同样走 `tools/profile-paths.mjs` 自动探测，不再写死 profile 名。
 - **没有真实语料的环境**（CI / 新克隆 / 换机）：先 `node tools\make-test-fixture.mjs <DSH_HOME>`
   造合成会话（一富一空，空的那个故意做成"最新"—— 钉住审查清单 C1 的样本选择回归），
   再设 `DSH_HOME` / `DSH_ATTENTION_HEALTH_DIR` / `DSH_ATTENTION_HEALTH_UI_DIR` 跑五套，
-  期望 **715 项 0 失败**（少掉的 4 项是需要特定真实会话的回归，会自己跳过并打印原因）。
+  数量以实际汇总为准，必须 **0 失败**（4 项依赖特定真实会话的回归会跳过并打印原因）。
 - `.\deploy.ps1` 已**退役为回退工具**：检测到标准安装就拒绝运行（`-Force` 才绕过）。
   它部署的是旧形态挂载线（`profiles\web\attention-health\` +
   `profiles\node_modules\attention-health-ui\`）—— 两个目录与 patch 里的两条旧行**都还留着**，
@@ -67,8 +80,8 @@
 
 - 落点全部在 `$DSH_HOME/attention-health/`：`handoff-history.jsonl`、`guard-trips.jsonl`、
   `prices.json`（JSONL 由 `lib/jsonl.js` 统一做 **512 KB 轮转**，磁盘占用有界）。
-- 守卫现场默认保留思考原文**尾部 500 字**；`DSH_ATTENTION_HEALTH_GUARD_TAIL=0` 切隐私模式
-  （只存哈希 + 长度 + 首尾 40 字）。
+- 守卫现场默认保留思考原文**尾部 500 字**；`DSH_ATTENTION_HEALTH_GUARD_TAIL=0` 切减少留存模式
+  （仍存尾部片段的哈希、长度、首尾各 40 字；reason / detail 也可能含原文，不是零原文模式）。
 - **写路径纪律**：测试/验证脚本一律 `mkdtemp` + 临时 `DSH_HOME` + 用完即删；
   自动化验证写历史样本时传 `record=0`（否则污染校准数据）。
 
@@ -106,7 +119,7 @@ cd <临时目录>\package; npx dsh-vet .   # 期望 grade A（0 critical / high 
 ```
 
 - **CI 会自动跑**（`.github/workflows/ci.yml`，公开仓库每次 push / PR）：语法检查、
-  身份闸门、五套自测（合成语料 715 项）、dsh-vet A 级门 —— 推送后看一眼 Actions 结果即可，
+  身份闸门、五套自测（合成语料，数量以实际输出为准）、dsh-vet A 级门 —— 推送后看一眼 Actions 结果即可，
   不必在本机重复这四件事。
 - **发布产物内容 = `tools/make-release.mjs` 的 `PUBLISH` 白名单**（含 `docs/`、`.github/`）；
   新增要公开的目录/文件时**必须同步改白名单**，否则它只会留在开发仓库（AJ.7 的
@@ -133,3 +146,24 @@ cd <临时目录>\package; npx dsh-vet .   # 期望 grade A（0 critical / high 
 **改代码时若新增能力（子进程 / 外部网络 / worker），必须同步更新它** ——
 声明与实际不符会被 `perm.seam-mismatch` 报 medium 并拉低评级。
 （`env` / `homedir` 不映射到任何 seam，无需声明；本插件没有 `child_process`，故不需要 `shell`。）
+
+## 8. 审查文档：**每轮先读它，并按它更新**（2026-10-01 用户要求）
+
+- 审查侧维护一份**持续追加**的《attention-health 审查清单与修复任务（2026-09-18）》，
+  按字母分节（`A`…`AX`…），**新结论总是追加在末尾**。用户 2026-10-01 明确要求：
+  **以后每一轮都按这份文档的最新节去更新** —— 它是待修项的来源，不只是历史记录。
+  ⚠️ 2026-10-01 的教训：接手时只读了仓库内文档（本文件 / README / docs），**漏了它**，
+  结果自己"独立发现"的问题（桌面版守卫误停）审查侧当天已经写成待修项（AX 节）——
+  重复劳动不说，还差点把已完成的分析当成新结论汇报。
+- 位置在用户四区约定的**成品/留档区**（文件名含 `审查清单与修复任务`），由用户提供；
+  **不要在公开产物里写死它的绝对路径**（发布脱敏会变成 `<TOOLS>` 占位符）。
+- 怎么用：文档约 3900 行 —— **只读最新几节 + 按关键词检索**，别整篇载入
+  （与 `DEPLOYMENT-NOTES-20260915.md` 同一条纪律）。每轮开工前先看末尾有没有新节。
+- 已完成/未完成以它为准，例如 AX 节（2026-10-01）的桌面版守卫误停：
+  **档位 0（结构重复放行）已实现**；档位 1/2/3 的阈值它自己标注为"待验证的候选值"，未实现。
+- 分工（**2026-10-02 用户更新**）：审查文档的**裁决与复核节**仍由审查侧维护，开发侧**不改动已有内容**；
+  但**开发侧每轮的改动和修复也要追加进审查文档** —— 在末尾追加「开发侧完成报告」节
+  （延续字母编号，如 `BF`），只追加、并在节首标明"本节由开发侧写、性质是回执而非裁决"。
+  开发仓自己的详细记录照旧写 `DEPLOYMENT-NOTES-20260915.md`（两条线各自留痕）。
+  ⚠️ 为什么改：2026-10-02 发现 §86–§90 五个提交**两边都没留痕**，审查侧无从跟进
+  （BE.4 把 `§90` 已经做掉的"档位 1/2"仍列为"待完成"）。

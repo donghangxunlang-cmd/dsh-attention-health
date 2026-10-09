@@ -3,26 +3,25 @@
  *
  * 目标：在**挂载到运行中的 DSH 之前**证明插件不会崩，且检测结果与离线版一致。
  *
- * 注意：插件实体从 $DSH_HOME/profiles/web/ 加载（那里才能解析 zod），
+ * 注意：插件实体从**标准插件包**（`$DSH_HOME/profiles/<profile>/node_modules/dsh-attention-health`，
+ * profile 名由 `tools/profile-paths.mjs` 探测）加载（那里才能解析 zod），
  * 离线模块从本项目加载。
  *
  * 运行：node test/plugin-test.mjs
  */
 
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { listSessions, readSession } from '../lib/session-log.mjs';
 import { analyzeSession } from '../lib/detect.mjs';
+import { resolveHostDir } from '../tools/profile-paths.mjs';
 
-// 部署目录可用环境变量覆盖（2026-09-18 标准包化）：
-// 门 2 的临时 profile 实验就是靠它把五套自测指向"刚装进去的那份"，
-// 而不是"当前 web profile 里那份"。默认值 = 本机现役的旧形态部署目录。
-const pluginDir =
-  process.env.DSH_ATTENTION_HEALTH_DIR ??
-  path.join(os.homedir(), '.dsh', 'profiles', 'web', 'attention-health');
+// 被测 host 半目录：环境变量 → 自动探测到的标准安装 → 本仓库源码（回退，不代表线上）。
+const projectRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const pluginDir = resolveHostDir() ?? path.join(projectRoot, 'lib');
 const pluginPath = path.join(pluginDir, 'index.js');
 
 let pass = 0;
@@ -38,6 +37,10 @@ const check = (label, ok, detail = '') => {
 };
 
 console.log('════════ 1. 加载插件 ════════');
+console.log(
+  `  被测插件：${pluginPath}` +
+    (pluginDir === path.join(projectRoot, 'lib') ? '（回退源码，不代表线上）' : '（安装副本）'),
+);
 const plugin = await import(pathToFileURL(pluginPath).href);
 // 退化判据的唯一实现所在处（用于交叉比对）
 const hf = await import(pathToFileURL(path.join(path.dirname(pluginPath), 'handoff.js')).href);

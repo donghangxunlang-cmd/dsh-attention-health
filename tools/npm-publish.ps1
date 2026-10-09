@@ -31,6 +31,11 @@ $ErrorActionPreference = 'Stop'
 $toolsDir = $PSScriptRoot
 $repoRoot = Split-Path -Parent $toolsDir
 if (-not $Dir) { $Dir = $repoRoot }
+# ⚠️ **必须先规范化成绝对路径**（2026-10-01 修）：第 3 步用 `[System.IO.File]::ReadAllText((Join-Path $Dir 'package.json'))`
+# 读元数据，而 .NET 的相对路径按**进程当前目录**解析 —— PowerShell 的 `Set-Location`（cd）**不会**改它。
+# 于是传相对 `-Dir work\release-check2` 时，前两步（npm pack / 解包扫描）都成功，
+# 第 3 步却去 `<WORKSPACE>\work\release-check2\package.json` 找文件而崩（实测踩到）。
+$Dir = (Resolve-Path -LiteralPath $Dir).Path
 if (-not (Test-Path -LiteralPath (Join-Path $Dir 'package.json'))) {
     throw "不是包目录（没有 package.json）：$Dir"
 }
